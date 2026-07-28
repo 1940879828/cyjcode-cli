@@ -42,7 +42,7 @@ export interface ToolCallDelta {
   };
 }
 
-// 流失输出接口事件返回值
+// 流失输出接口事件返回值 适配成当前项目的需要的结构
 export type StreamEvent =
   | 
   { 

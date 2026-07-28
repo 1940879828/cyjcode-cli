@@ -11,10 +11,16 @@ import type {
 export interface StreamChatOptions {
   // 上下文历史 每次调用都必须把整个对话历史传回去
   messages: ChatMessage[];
+  // 注册工具: 告诉模型有你这个agent目前哪些工具可以调用
   tools?: Record<string, unknown>[];
+  /**
+   * 配合 AbortController 使用主动取消一个异步操作
+   * AbortController 是遥控器，AbortSignal 是接收器。controller.abort() 一按，所有持有同一个 signal 的异步操作都会被取消。
+   */
   signal?: AbortSignal;
 }
 
+// 新建一个http客户端 每次发请求都new一个 放一下配置字符串
 function buildClient(): OpenAI {
   const config = getConfig();
   return new OpenAI({
@@ -24,6 +30,12 @@ function buildClient(): OpenAI {
   });
 }
 
+
+/**
+ * 数据适配转换
+ * 把ChatMessage转换为OpenAI的ChatCompletionMessageParam 
+ * 
+ */
 function toOpenAIMessages(messages: ChatMessage[]): OpenAI.Chat.ChatCompletionMessageParam[] {
   return messages.map((msg) => {
     const base: Record<string, unknown> = {
@@ -47,17 +59,26 @@ function toOpenAIMessages(messages: ChatMessage[]): OpenAI.Chat.ChatCompletionMe
 }
 
 /**
+ * 适配器：适配OpenAI返回值
  * 流式调用 LLM，通过 AsyncGenerator 逐块产出 StreamEvent。
+ * 每次向大模型发送请求都要调用一次
  */
 export async function* streamChat(
   options: StreamChatOptions
 ): AsyncGenerator<StreamEvent> {
+  // 拿配置
   const config = getConfig();
+  // 拿客户端
   const client = buildClient();
-
+  // 准备消息
   const openaiMessages = toOpenAIMessages(options.messages);
 
   try {
+    /**
+     * 发请求
+     * return Stream<ChatCompletionChunk> 异步可迭代对象
+     *  实现了 AsyncIterable 接口，所以可以用 for await...of 来逐块消费。
+     */
     const stream = await client.chat.completions.create({
       model: config.model,
       messages: openaiMessages,
@@ -69,6 +90,10 @@ export async function* streamChat(
         : {}),
     });
 
+    /**
+     * 跨 chunk 拼接工具调用
+     * 工具调用是分块返回的，需要在下一个 chunk 中才能确定调用完成。
+     */
     const toolCallAccumulator: Map<number, ToolCallAccumulator> = new Map();
     let hasContent = false;
 
