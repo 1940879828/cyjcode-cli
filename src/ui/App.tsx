@@ -1,11 +1,13 @@
 import { useState, useCallback, useEffect } from "react";
 import { Box, Text } from "ink";
-import { hasConfig } from "../config/store.js";
+import { hasConfig, getConfig } from "../config/store.js";
 import { useChat } from "./useChat.js";
 import MessageList from "./MessageList.js";
 import InputBox from "./InputBox.js";
 import { matchCommand } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
+import Header from "./components/Header.js";
+import pkg from "../../package.json" with { type: "json" };
 
 /**
  * 命令输出自动清除的延迟（毫秒）。
@@ -70,34 +72,32 @@ const App = () => {
     return <SetupWizard onComplete={() => setConfigured(true)} />;
   }
 
+  const config = getConfig();
+
   return (
-    <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
-        <Text color="cyan" bold>
-          ⚡ cyjcode-cli v0.1
-        </Text>
-        <Text color="gray" dimColor>
-          {" "}— 终端 AI 编程助手
-        </Text>
-      </Box>
+    <Box flexDirection="column">
+      <Header
+        version={pkg.version}
+        model={config.model}
+        thinking={config.thinking}
+        reasoningEffort={config.reasoningEffort}
+      />
 
       {commandOutput && (
-        <Box marginY={1} padding={1} borderStyle="single">
+        <Box marginY={0} paddingX={1} borderStyle="single">
           <Text color="gray">{commandOutput}</Text>
         </Box>
       )}
 
-      <MessageList entries={entries} streamingText={streamingText} streamingReasoning={streamingReasoning} isStreaming={isStreaming} />
-
-      <Box marginY={1}>
-        <Text color="gray" dimColor>
-          {"─".repeat(Math.max(10, (process.stdout.columns || 80) - 2))}
-        </Text>
-      </Box>
+      {entries.length > 0 && (
+        <Box paddingX={1}>
+          <MessageList entries={entries} streamingText={streamingText} streamingReasoning={streamingReasoning} isStreaming={isStreaming} />
+        </Box>
+      )}
 
       <InputBox onSubmit={handleSubmit} disabled={isStreaming} />
 
-      <Box marginTop={1}>
+      <Box paddingX={1} marginTop={1}>
         <Text color="gray" dimColor>
           /help 帮助 | /config 配置 | /clear 清空 | /setup 重配 | Ctrl+C 退出
         </Text>

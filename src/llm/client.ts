@@ -79,14 +79,19 @@ export async function* streamChat(
      * return Stream<ChatCompletionChunk> 异步可迭代对象
      *  实现了 AsyncIterable 接口，所以可以用 for await...of 来逐块消费。
      */
-    const stream = await client.chat.completions.create({
+    // DeepSeek 特有参数 thinking 不在 OpenAI 类型定义中
+    // 使用 any 绕过类型检查，运行时完全兼容
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const create = client.chat.completions.create as any;
+    const stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> = await create({
       model: config.model,
       messages: openaiMessages,
       stream: true,
+      ...(config.thinking
+        ? { thinking: { type: "enabled" as const } }
+        : {}),
       ...(options.tools && options.tools.length > 0
-        ? {
-            tools: options.tools as unknown as OpenAI.Chat.Completions.ChatCompletionTool[],
-          }
+        ? { tools: options.tools }
         : {}),
     });
 
@@ -133,7 +138,7 @@ export async function* streamChat(
 
         yield {
           type: "tool_call_delta",
-          deltas: delta.tool_calls.map((tc) => ({
+          deltas: delta.tool_calls.map((tc: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta.ToolCall) => ({
             index: tc.index,
             id: tc.id ?? undefined,
             type: tc.type as "function" | undefined,

@@ -2,6 +2,7 @@ import React from "react";
 import { render } from "ink";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
+import pkg from "../package.json" with { type: "json" };
 import App from "./ui/App.js";
 import LogViewer from "./ui/LogViewer.js";
 import { setRecordPath, setMockPath } from "./devmock/index.js";
@@ -45,6 +46,6 @@ yargs(hideBin(process.argv))
       });
     }
   )
-  .version("0.1.0")
+  .version(pkg.version)
   .help()
   .parse();

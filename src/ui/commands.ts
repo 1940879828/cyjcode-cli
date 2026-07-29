@@ -30,6 +30,8 @@ export const commands: Command[] = [
         `  API Base URL: ${config.baseUrl}`,
         `  API Key: ${config.apiKey ? config.apiKey.slice(0, 8) + "..." + (config.apiKey.length > 8 ? config.apiKey.slice(-4) : "") : "(未设置)"}`,
         `  Model: ${config.model}`,
+        `  Thinking: ${config.thinking ? "Enabled" : "Disabled"}`,
+        `  Reasoning Effort: ${config.reasoningEffort}`,
       ];
       return lines.join("\n");
     },

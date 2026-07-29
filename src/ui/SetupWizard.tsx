@@ -67,6 +67,8 @@ const SetupWizard = ({ onComplete }: Props) => {
           apiKey: apiKeyRef.current,
           model: modelRef.current || DEFAULT_CONFIG.model,
           models: [modelRef.current || DEFAULT_CONFIG.model],
+          thinking: DEFAULT_CONFIG.thinking,
+          reasoningEffort: DEFAULT_CONFIG.reasoningEffort,
         });
         onComplete();
         return;

@@ -12,6 +12,10 @@ export interface CyjConfig {
   model: string;
   // 可用模型列表
   models: string[];
+  // DeepSeek 思考模式
+  thinking: boolean;
+  // 推理深度（DeepSeek reasoning_effort）
+  reasoningEffort: string;
 }
 
 const CONFIG_DIR = path.join(os.homedir(), ".cyjcode");
@@ -25,6 +29,8 @@ export const DEFAULT_CONFIG: CyjConfig = {
   apiKey: "",
   model: "deepseek-v4-pro",
   models: [],
+  thinking: true,
+  reasoningEffort: "max",
 };
 
 function ensureDir(): void {

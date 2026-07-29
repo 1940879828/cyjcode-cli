@@ -35,12 +35,6 @@ const MessageList = ({ entries, streamingText, streamingReasoning, isStreaming }
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {visible.length === 0 && !isStreaming && (
-        <Box>
-          <Text color="gray">输入消息开始对话，输入 /help 查看帮助</Text>
-        </Box>
-      )}
-
       {visible.map((entry) => (
         <EntryRow key={entry.id} entry={entry} />
       ))}
