@@ -101,6 +101,15 @@ export async function* streamChat(
       const delta = chunk.choices[0]?.delta;
       if (!delta) continue;
 
+      // 处理 DeepSeek 思考过程增量
+      // reasoning_content 是 DeepSeek 的 chain-of-thought，只在最终回复前出现
+      if ((delta as Record<string, unknown>).reasoning_content) {
+        yield {
+          type: "reasoning_delta",
+          content: (delta as Record<string, unknown>).reasoning_content as string,
+        };
+      }
+
       // 处理文本增量
       if (delta.content) {
         hasContent = true;

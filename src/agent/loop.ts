@@ -1,6 +1,7 @@
 import { streamChat } from "../llm/client.js";
-import type { ChatMessage } from "../llm/types.js";
+import type { ChatMessage, ToolCall } from "../llm/types.js";
 import { toolsToOpenAI, getTool } from "../tools/index.js";
+import type { ToolResult } from "../tools/types.js";
 import type { AgentEvent } from "./types.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { addMessage, getMessages, appendToolResult } from "./history.js";
@@ -8,35 +9,112 @@ import { log } from "../utils/logger.js";
 
 const MAX_ROUNDS = 10;
 
+// ─── 内部辅助 ────────────────────────────────────────
+
+/** 生成简短的会话 ID */
+function generateSessionId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+/** 产出工具错误事件（tool_call + tool_result）并写入历史 */
+function* emitToolError(
+  tc: ToolCall,
+  errorMessage: string,
+): Generator<AgentEvent> {
+  yield {
+    type: "tool_call",
+    callId: tc.id,
+    name: tc.function.name,
+    arguments: {},
+  };
+  yield {
+    type: "tool_result",
+    callId: tc.id,
+    name: tc.function.name,
+    result: { success: false, error: errorMessage },
+  };
+  appendToolResult(tc.id, tc.function.name, `错误: ${errorMessage}`);
+}
+
+/** 执行单个工具调用，返回需 yield 的事件序列 */
+async function* emitToolExecution(
+  tc: ToolCall,
+  parsedArgs: Record<string, unknown>,
+  sessionId: string,
+  turn: number,
+): AsyncGenerator<AgentEvent> {
+  const tool = getTool(tc.function.name);
+  if (!tool) {
+    log("tool.start", { sessionId, turn, tool: tc.function.name, args: parsedArgs });
+    log("tool.end", { sessionId, turn, tool: tc.function.name, success: false, error: "未注册的工具" });
+    yield* emitToolError(tc, `未注册的工具: ${tc.function.name}`);
+    return;
+  }
+
+  // 埋点: tool.start
+  log("tool.start", { sessionId, turn, tool: tc.function.name, args: parsedArgs });
+
+  let result: ToolResult;
+  try {
+    result = await tool.execute(parsedArgs);
+  } catch (err) {
+    result = {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  // 埋点: tool.end
+  log("tool.end", {
+    sessionId,
+    turn,
+    tool: tc.function.name,
+    success: result.success,
+    error: result.success ? undefined : result.error,
+  });
+
+  yield { type: "tool_call", callId: tc.id, name: tc.function.name, arguments: parsedArgs };
+  yield { type: "tool_result", callId: tc.id, name: tc.function.name, result };
+
+  const resultStr = result.success
+    ? result.data ?? "成功"
+    : `错误: ${result.error}`;
+  appendToolResult(tc.id, tc.function.name, resultStr);
+}
+
+/** 尝试解析工具参数，失败返回 null */
+function parseToolArgs(raw: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+// ─── 主循环 ──────────────────────────────────────────
+
 /**
  * Agent 主循环: AsyncGenerator 逐事件产出。
  * 调用方通过 for await...of 消费事件流。
  */
 export async function* runAgentLoop(
-  userMessage: string
+  userMessage: string,
 ): AsyncGenerator<AgentEvent> {
-  const sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const sessionId = generateSessionId();
 
   // 埋点: session.start
   log("session.start", { sessionId, userMessage });
 
-  // 1. yield user_message 事件
+  // 回显并记录用户输入
   yield { type: "user_message", content: userMessage };
-
-  // 2. 将用户消息加入历史
   addMessage({ role: "user", content: userMessage });
 
-  // 3. 构建 system prompt（首次）
   const systemPrompt = buildSystemPrompt();
-
-  // 4. 主循环
   const tools = toolsToOpenAI();
-  let totalTokens = 0;
 
   for (let turn = 1; turn <= MAX_ROUNDS; turn++) {
     yield { type: "turn_start", turn };
 
-    // 构建消息列表
     const messages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
       ...getMessages(),
@@ -46,43 +124,43 @@ export async function* runAgentLoop(
     log("llm.request", {
       sessionId,
       turn,
-      model: systemPrompt, // 实际 model 在 client 中读取
       messageCount: messages.length,
     });
 
-    // 调用 LLM
     let fullText = "";
-    let hasToolCalls = false;
-    let doneToolCalls: ChatMessage["tool_calls"] = [];
+    let reasoningText = "";
+    let toolCalls: ToolCall[] | null = null;
 
     try {
       const stream = streamChat({ messages, tools });
 
       for await (const event of stream) {
         switch (event.type) {
+          case "reasoning_delta":
+            reasoningText += event.content;
+            yield { type: "reasoning_delta", content: event.content };
+            break;
+
           case "text_delta":
             fullText += event.content;
             yield { type: "text_delta", content: event.content };
             break;
 
           case "tool_call_delta":
-            // 累积 tool_call 原始增量（不逐个 yield，等 done 时一起处理）
+            // 增量在 done 事件中统一处理
             break;
 
           case "done": {
-            const msg = event.message;
-            if (msg.tool_calls && msg.tool_calls.length > 0) {
-              hasToolCalls = true;
-              doneToolCalls = msg.tool_calls;
+            const tcList = event.message.tool_calls;
+            if (tcList?.length) {
+              toolCalls = tcList;
             }
-            // 埋点: llm.response
             log("llm.response", {
               sessionId,
               turn,
-              hasToolCalls,
-              toolCallCount: doneToolCalls?.length || 0,
+              hasToolCalls: !!toolCalls,
+              toolCallCount: toolCalls?.length ?? 0,
               responseLength: fullText.length,
-              totalTokens,
             });
             break;
           }
@@ -96,131 +174,53 @@ export async function* runAgentLoop(
         }
       }
 
-      // 如果本轮有文本输出且无 tool_calls，保存助手消息并完成
-      if (fullText && !hasToolCalls) {
-        addMessage({ role: "assistant", content: fullText });
-        yield { type: "turn_end", turn };
-        yield { type: "done", fullText };
-        log("session.end", { sessionId, status: "success", totalTurns: turn, totalTokens });
-        return;
-      }
-
-      // 如果本轮没有 tool_calls 也没有文本（异常情况），退出
-      if (!hasToolCalls) {
+      // 无工具调用 → 本轮即最终回复
+      if (!toolCalls) {
+        addMessage({
+          role: "assistant",
+          content: fullText || "（无回复内容）",
+        });
         yield { type: "turn_end", turn };
         yield { type: "done", fullText: fullText || "（无回复内容）" };
-        log("session.end", { sessionId, status: "success", totalTurns: turn, totalTokens });
+        log("session.end", { sessionId, status: "success", totalTurns: turn });
         return;
       }
 
-      // 处理 tool_calls
-      // 保存助手消息（带 tool_calls）
-      const assistantMsg: ChatMessage = {
+      // 有工具调用 → 保存助手消息，逐条执行工具
+      addMessage({
         role: "assistant",
         content: fullText || null,
-        tool_calls: doneToolCalls,
-      };
-      addMessage(assistantMsg);
+        tool_calls: toolCalls,
+      });
 
-      // 执行每个工具调用
-      for (const tc of doneToolCalls) {
-        let parsedArgs: Record<string, unknown>;
-        try {
-          parsedArgs = JSON.parse(tc.function.arguments);
-        } catch {
-          log("tool.start", { sessionId, turn, tool: tc.function.name, args: tc.function.arguments });
-          log("tool.end", { sessionId, turn, tool: tc.function.name, success: false, error: "JSON 解析失败" });
-          yield {
-            type: "tool_call",
-            callId: tc.id,
-            name: tc.function.name,
-            arguments: {},
-          };
-          yield {
-            type: "tool_result",
-            callId: tc.id,
-            name: tc.function.name,
-            result: {
-              success: false,
-              error: `工具参数 JSON 解析失败: ${tc.function.arguments}`,
-            },
-          };
-          appendToolResult(
-            tc.id,
-            tc.function.name,
-            `错误: 工具参数 JSON 解析失败: ${tc.function.arguments}`
+      for (const tc of toolCalls) {
+        const parsedArgs = parseToolArgs(tc.function.arguments);
+
+        if (!parsedArgs) {
+          log("tool.start", {
+            sessionId,
+            turn,
+            tool: tc.function.name,
+            args: tc.function.arguments,
+          });
+          log("tool.end", {
+            sessionId,
+            turn,
+            tool: tc.function.name,
+            success: false,
+            error: "JSON 解析失败",
+          });
+          yield* emitToolError(
+            tc,
+            `工具参数 JSON 解析失败: ${tc.function.arguments}`,
           );
           continue;
         }
 
-        yield {
-          type: "tool_call",
-          callId: tc.id,
-          name: tc.function.name,
-          arguments: parsedArgs,
-        };
-
-        // 执行工具
-        const tool = getTool(tc.function.name);
-        if (!tool) {
-          log("tool.start", { sessionId, turn, tool: tc.function.name, args: parsedArgs });
-          log("tool.end", { sessionId, turn, tool: tc.function.name, success: false, error: "未注册的工具" });
-          const errorResult = {
-            success: false,
-            error: `未注册的工具: ${tc.function.name}`,
-          };
-          yield {
-            type: "tool_result",
-            callId: tc.id,
-            name: tc.function.name,
-            result: errorResult,
-          };
-          appendToolResult(
-            tc.id,
-            tc.function.name,
-            `错误: 未注册的工具: ${tc.function.name}`
-          );
-          continue;
-        }
-
-        // 埋点: tool.start
-        log("tool.start", { sessionId, turn, tool: tc.function.name, args: parsedArgs });
-
-        let result;
-        try {
-          result = await tool.execute(parsedArgs);
-        } catch (err) {
-          result = {
-            success: false,
-            error: err instanceof Error ? err.message : String(err),
-          };
-        }
-
-        // 埋点: tool.end
-        log("tool.end", {
-          sessionId,
-          turn,
-          tool: tc.function.name,
-          success: result.success,
-          error: result.success ? undefined : result.error,
-        });
-
-        yield {
-          type: "tool_result",
-          callId: tc.id,
-          name: tc.function.name,
-          result,
-        };
-
-        // 将工具结果追加到消息历史
-        const resultStr = result.success
-          ? result.data ?? "成功"
-          : `错误: ${result.error}`;
-        appendToolResult(tc.id, tc.function.name, resultStr);
+        yield* emitToolExecution(tc, parsedArgs, sessionId, turn);
       }
 
       yield { type: "turn_end", turn };
-      // 继续下一轮
     } catch (error) {
       log("error", {
         sessionId,

@@ -1,208 +1,190 @@
-import React, { useState, useCallback } from "react";
+import { useState, useCallback, useLayoutEffect, useRef } from "react";
 import { Box, Text } from "ink";
-import { useInput } from "ink";
-import type { CyjConfig } from "../config/store.js";
-import { setConfig, getConfig } from "../config/store.js";
+import { useStdin } from "ink";
+import { setConfig, DEFAULT_CONFIG } from "../config/store.js";
+
+// ─── 括号粘贴标记 ──────────────────────────────────
+
+const PASTE_START = "\u001B[200~";
+const PASTE_END = "\u001B[201~";
+
+type Step = "baseUrl" | "apiKey" | "model" | "confirm";
+
+const STEP_ORDER: Step[] = ["baseUrl", "apiKey", "model", "confirm"];
+const STEP_LABELS: Record<Step, string> = {
+  baseUrl: "URL",
+  apiKey: "Key",
+  model: "Model",
+  confirm: "确认",
+};
 
 interface Props {
   onComplete: () => void;
 }
 
-type Step = "baseUrl" | "apiKey" | "model" | "confirm";
-
-const stepOrder: Step[] = ["baseUrl", "apiKey", "model", "confirm"];
-
-const SetupWizard: React.FC<Props> = ({ onComplete }) => {
-  const [currentStep, setCurrentStep] = useState<Step>("baseUrl");
-  const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
+const SetupWizard = ({ onComplete }: Props) => {
+  const [step, setStep] = useState<Step>("baseUrl");
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_CONFIG.baseUrl);
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("gpt-4o");
+  const [model, setModel] = useState(DEFAULT_CONFIG.model);
   const [inputValue, setInputValue] = useState("");
-  const [showMasked, setShowMasked] = useState(false);
+  const { stdin, setRawMode } = useStdin();
 
-  const stepIndex = stepOrder.indexOf(currentStep);
+  // ref 避免闭包捕获过期值
+  const inputRef = useRef(inputValue);
+  inputRef.current = inputValue;
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  const baseUrlRef = useRef(baseUrl);
+  baseUrlRef.current = baseUrl;
+  const apiKeyRef = useRef(apiKey);
+  apiKeyRef.current = apiKey;
+  const modelRef = useRef(model);
+  modelRef.current = model;
+  const pasteRef = useRef({ active: false, chunks: [] as string[] });
 
-  const saveAndNext = useCallback(() => {
-    switch (currentStep) {
+  const stepIdx = STEP_ORDER.indexOf(step);
+
+  const applyStepValue = useCallback(() => {
+    const s = stepRef.current;
+    const input = inputRef.current;
+    switch (s) {
       case "baseUrl":
-        setBaseUrl(inputValue || "https://api.openai.com/v1");
-        setCurrentStep("apiKey");
+        setBaseUrl(input || DEFAULT_CONFIG.baseUrl);
+        setStep("apiKey");
         break;
       case "apiKey":
-        setApiKey(inputValue);
-        setCurrentStep("model");
+        setApiKey(input);
+        setStep("model");
         break;
       case "model":
-        setModel(inputValue || "gpt-4o");
-        setCurrentStep("confirm");
+        setModel(input || DEFAULT_CONFIG.model);
+        setStep("confirm");
         break;
       case "confirm":
-        // 保存配置
-        const config: CyjConfig = {
-          baseUrl: baseUrl || "https://api.openai.com/v1",
-          apiKey,
-          model: model || "gpt-4o",
-        };
-        setConfig(config);
+        setConfig({
+          baseUrl: baseUrlRef.current || DEFAULT_CONFIG.baseUrl,
+          apiKey: apiKeyRef.current,
+          model: modelRef.current || DEFAULT_CONFIG.model,
+          models: [modelRef.current || DEFAULT_CONFIG.model],
+        });
         onComplete();
         return;
     }
     setInputValue("");
-    setShowMasked(false);
-  }, [currentStep, inputValue, baseUrl, apiKey, model, onComplete]);
+  }, [onComplete]);
 
-  useInput(
-    useCallback(
-      (inputChar: string, key: { return: boolean; backspace: boolean; delete: boolean; tab: boolean }) => {
-        // 确认步骤特殊处理
-        if (currentStep === "confirm") {
-          if (key.return) {
-            saveAndNext();
-          } else if (inputChar.toLowerCase() === "y") {
-            saveAndNext();
-          }
+  /** 处理解析后的输入字符串 */
+  const processInput = (raw: string): void => {
+    if (raw.includes("\r")) {
+      if (stepRef.current === "confirm") return;
+      applyStepValue();
+      raw = raw.replace(/\r/g, "");
+    }
+
+    const backspaces = (raw.match(/[\b\x7F]/g) ?? []).length;
+    const clean = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+
+    if (backspaces > 0) {
+      setInputValue((prev) => prev.slice(0, Math.max(0, prev.length - backspaces)));
+    }
+    if (clean.length > 0) {
+      setInputValue((prev) => prev + clean);
+    }
+  };
+
+  useLayoutEffect(() => {
+    if (!stdin) return;
+
+    setRawMode(true);
+    process.stdout.write("\u001B[?2004h");
+
+    const handleData = (data: Buffer) => {
+      const raw = String(data);
+
+      // 确认页：Y 键确认
+      if (stepRef.current === "confirm") {
+        const printable = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+        if (printable === "y" || printable === "Y" || raw === "\r") {
+          applyStepValue();
+        }
+        return;
+      }
+
+      // ── 括号粘贴处理 ──
+      if (raw.includes(PASTE_START)) {
+        pasteRef.current.active = true;
+        pasteRef.current.chunks = [];
+        const after = raw.slice(raw.indexOf(PASTE_START) + PASTE_START.length);
+        const endIdx = after.indexOf(PASTE_END);
+        if (endIdx !== -1) {
+          pasteRef.current.active = false;
+          const pasteContent = after.slice(0, endIdx);
+          const remaining = after.slice(endIdx + PASTE_END.length);
+          if (pasteContent) setInputValue((prev) => prev + pasteContent);
+          if (remaining) processInput(remaining);
           return;
         }
+        pasteRef.current.chunks.push(after);
+        return;
+      }
 
-        if (key.return) {
-          saveAndNext();
-        } else if (key.backspace || key.delete) {
-          setInputValue((prev) => prev.slice(0, -1));
-        } else if (key.tab) {
-          // Tab 切换密码显示
-          if (currentStep === "apiKey") {
-            setShowMasked((prev) => !prev);
-          }
-        } else {
-          if (inputChar && inputChar.length === 1 && inputChar.charCodeAt(0) >= 32) {
-            setInputValue((prev) => prev + inputChar);
-          }
+      if (pasteRef.current.active) {
+        pasteRef.current.chunks.push(raw);
+        const combined = pasteRef.current.chunks.join("");
+        const endIdx = combined.indexOf(PASTE_END);
+        if (endIdx !== -1) {
+          pasteRef.current.active = false;
+          const pasteContent = combined.slice(0, endIdx);
+          const remaining = combined.slice(endIdx + PASTE_END.length);
+          pasteRef.current.chunks = [];
+          if (pasteContent) setInputValue((prev) => prev + pasteContent);
+          if (remaining) processInput(remaining);
         }
-      },
-      [currentStep, saveAndNext]
-    )
-  );
+        return;
+      }
+
+      // ── 普通输入 ──
+      processInput(raw);
+    };
+
+    stdin.on("data", handleData);
+    return () => {
+      stdin.off("data", handleData);
+      setRawMode(false);
+      process.stdout.write("\u001B[?2004l");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stdin]);
 
   return (
     <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
-        <Text color="cyan" bold>
-          ⚡ cyjcode-cli — 首次配置引导
-        </Text>
+        <Text color="cyan" bold>⚡ cyjcode-cli — 首次配置引导</Text>
       </Box>
 
-      {/* 步骤指示器 */}
       <Box marginBottom={1}>
-        {stepOrder.map((step, i) => (
-          <React.Fragment key={step}>
-            <Text color={i <= stepIndex ? "green" : "gray"}>
-              {i <= stepIndex ? "●" : "○"} {getLabel(step)}
+        {STEP_ORDER.map((s, i) => (
+          <Text key={s}>
+            <Text color={i <= stepIdx ? "green" : "gray"}>
+              {i <= stepIdx ? "●" : "○"} {STEP_LABELS[s]}
             </Text>
-            {i < stepOrder.length - 1 && (
-              <Text color="gray">{" — "}</Text>
-            )}
-          </React.Fragment>
+            {i < STEP_ORDER.length - 1 && <Text color="gray">{" — "}</Text>}
+          </Text>
         ))}
       </Box>
 
       <Box marginY={1}>
-        <Text color="gray" dimColor>
-          {"—".repeat(40)}
-        </Text>
+        <Text color="gray" dimColor>{"—".repeat(40)}</Text>
       </Box>
 
-      {/* 当前步骤内容 */}
-      {currentStep === "baseUrl" && (
-        <Box flexDirection="column">
-          <Text>① API Base URL</Text>
-          <Text color="gray" dimColor>
-            输入 OpenAI 兼容的 API 端点地址
-          </Text>
-          <Text color="gray">默认: https://api.openai.com/v1</Text>
-          <Box marginTop={1}>
-            <Text color="green" bold>
-              ▸{" "}
-            </Text>
-            <Text>{inputValue || "(使用默认值)"}</Text>
-            <Text color="gray">|</Text>
-          </Box>
-        </Box>
-      )}
-
-      {currentStep === "apiKey" && (
-        <Box flexDirection="column">
-          <Text>② API Key</Text>
-          <Text color="gray" dimColor>
-            输入您的 API 密钥（输入时不会显示明文）
-          </Text>
-          {showMasked && (
-            <Text color="gray">密钥将可见</Text>
-          )}
-          <Box marginTop={1}>
-            <Text color="green" bold>
-              ▸{" "}
-            </Text>
-            <Text>
-              {showMasked
-                ? inputValue
-                : inputValue
-                    ? "*".repeat(inputValue.length)
-                    : ""}
-            </Text>
-            <Text color="gray">|</Text>
-          </Box>
-          {inputValue.length > 0 && (
-            <Text color="gray" dimColor>
-              Tab 切换显示/隐藏
-            </Text>
-          )}
-        </Box>
-      )}
-
-      {currentStep === "model" && (
-        <Box flexDirection="column">
-          <Text>③ 模型名称</Text>
-          <Text color="gray" dimColor>
-            输入要使用的 LLM 模型名称
-          </Text>
-          <Text color="gray">默认: gpt-4o</Text>
-          <Box marginTop={1}>
-            <Text color="green" bold>
-              ▸{" "}
-            </Text>
-            <Text>{inputValue || "(使用默认值)"}</Text>
-            <Text color="gray">|</Text>
-          </Box>
-        </Box>
-      )}
-
-      {currentStep === "confirm" && (
-        <Box flexDirection="column">
-          <Text bold>④ 确认配置</Text>
-          <Box marginY={1} flexDirection="column">
-            <Text>
-              API Base URL:{" "}
-              <Text color="cyan">{baseUrl}</Text>
-            </Text>
-            <Text>
-              API Key:{" "}
-              <Text color="cyan">
-                {apiKey
-                  ? apiKey.slice(0, 8) + "..." + apiKey.slice(-4)
-                  : "(未设置)"}
-              </Text>
-            </Text>
-            <Text>
-              Model: <Text color="cyan">{model}</Text>
-            </Text>
-          </Box>
-          <Box marginTop={1}>
-            <Text color="green" bold>
-              按 Enter 或输入 Y 确认保存
-            </Text>
-          </Box>
-        </Box>
-      )}
+      <StepContent
+        step={step}
+        inputValue={inputValue}
+        baseUrl={baseUrl}
+        apiKey={apiKey}
+        model={model}
+      />
 
       <Box marginY={1}>
         <Text color="gray">按 Enter 继续</Text>
@@ -211,13 +193,88 @@ const SetupWizard: React.FC<Props> = ({ onComplete }) => {
   );
 };
 
-function getLabel(step: Step): string {
+const StepContent = ({
+  step,
+  inputValue,
+  baseUrl,
+  apiKey,
+  model,
+}: {
+  step: Step;
+  inputValue: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}) => {
   switch (step) {
-    case "baseUrl": return "URL";
-    case "apiKey": return "Key";
-    case "model": return "Model";
-    case "confirm": return "确认";
+    case "baseUrl":
+      return (
+        <StepBox title="① API Base URL" hint="输入 OpenAI 兼容的 API 端点地址" defaultValue={DEFAULT_CONFIG.baseUrl}>
+          <PromptRow value={inputValue} placeholder="(使用默认值)" />
+        </StepBox>
+      );
+
+    case "apiKey":
+      return (
+        <StepBox title="② API Key" hint="输入您的 API 密钥">
+          <PromptRow value={inputValue} placeholder="" />
+        </StepBox>
+      );
+
+    case "model":
+      return (
+        <StepBox title="③ 模型名称" hint="输入要使用的 LLM 模型名称" defaultValue={DEFAULT_CONFIG.model}>
+          <PromptRow value={inputValue} placeholder="(使用默认值)" />
+        </StepBox>
+      );
+
+    case "confirm":
+      return (
+        <Box flexDirection="column">
+          <Text bold>④ 确认配置</Text>
+          <Box marginY={1} flexDirection="column">
+            <Text>API Base URL: <Text color="cyan">{baseUrl}</Text></Text>
+            <Text>
+              API Key:{" "}
+              <Text color="cyan">
+                {apiKey ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : "(未设置)"}
+              </Text>
+            </Text>
+            <Text>Model: <Text color="cyan">{model}</Text></Text>
+          </Box>
+          <Box marginTop={1}>
+            <Text color="green" bold>按 Enter 或输入 Y 确认保存</Text>
+          </Box>
+        </Box>
+      );
   }
-}
+};
+
+const StepBox = ({
+  title,
+  hint,
+  defaultValue,
+  children,
+}: {
+  title: string;
+  hint: string;
+  defaultValue?: string;
+  children: React.ReactNode;
+}) => (
+  <Box flexDirection="column">
+    <Text>{title}</Text>
+    <Text color="gray" dimColor>{hint}</Text>
+    {defaultValue && <Text color="gray">默认: {defaultValue}</Text>}
+    {children}
+  </Box>
+);
+
+const PromptRow = ({ value, placeholder }: { value: string; placeholder: string }) => (
+  <Box marginTop={1}>
+    <Text color="green" bold>▸ </Text>
+    <Text>{value || placeholder}</Text>
+    <Text color="gray">|</Text>
+  </Box>
+);
 
 export default SetupWizard;

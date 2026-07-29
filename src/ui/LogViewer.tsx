@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { getTodayLogPath, readLogLines, type LogEntry } from "../utils/logger.js";
 
-const eventColors: Record<string, string> = {
+const MAX_VISIBLE_LOGS = 30;
+const POLL_INTERVAL = 500;
+
+const EVENT_COLORS: Record<string, string> = {
   "session.start": "magenta",
   "session.end": "magenta",
   "llm.request": "blue",
@@ -12,57 +15,48 @@ const eventColors: Record<string, string> = {
   error: "red",
 };
 
-const LogViewer: React.FC = () => {
+const LogViewer = () => {
   const [entries, setEntries] = useState<LogEntry[]>([]);
 
   useEffect(() => {
-    let lastOffset = 0;
-    let interval: ReturnType<typeof setInterval> | null = null;
+    let offset = 0;
 
-    const logPath = getTodayLogPath();
+    const filePath = getTodayLogPath();
+    // 取文件名，因为 readLogLines 需要的是相对于日志目录的文件名
+    const fileName = filePath.split(/[/\\]/).pop()!;
 
     const poll = () => {
       try {
-        const newLines = readLogLines(logPath.split(/[/\\]/).pop()!, lastOffset);
-        if (newLines.length > 0) {
-          const newEntries: LogEntry[] = [];
-          for (const line of newLines) {
-            try {
-              newEntries.push(JSON.parse(line) as LogEntry);
-            } catch {
-              // 跳过无效行
-            }
-          }
-          if (newEntries.length > 0) {
-            lastOffset += newLines.length;
-            setEntries((prev) => [...prev, ...newEntries]);
+        const lines = readLogLines(fileName, offset);
+        if (lines.length === 0) return;
+
+        const parsed: LogEntry[] = [];
+        for (const line of lines) {
+          try {
+            parsed.push(JSON.parse(line) as LogEntry);
+          } catch {
+            // 跳过无效行
           }
         }
+
+        if (parsed.length === 0) return;
+        offset += lines.length;
+        setEntries((prev) => [...prev, ...parsed]);
       } catch {
         // 文件可能还不存在
       }
     };
 
-    // 读取已有内容
     poll();
-    // 每 500ms 轮询
-    interval = setInterval(poll, 500);
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+    const timer = setInterval(poll, POLL_INTERVAL);
+    return () => clearInterval(timer);
   }, []);
 
   return (
     <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
-        <Text color="cyan" bold>
-          📋 cyjcode-cli 日志查看器
-        </Text>
-        <Text color="gray" dimColor>
-          {" "}
-          — 实时监控日志流
-        </Text>
+        <Text color="cyan" bold>📋 cyjcode-cli 日志查看器</Text>
+        <Text color="gray" dimColor>{" "}— 实时监控日志流</Text>
       </Box>
 
       <Box marginBottom={1}>
@@ -71,40 +65,26 @@ const LogViewer: React.FC = () => {
         </Text>
       </Box>
 
-      <Box marginY={1}>
-        <Text color="gray" dimColor>
-          {"—".repeat(
-            Math.max(10, (process.stdout.columns || 80) - 2)
-          )}
-        </Text>
-      </Box>
+      <Separator />
 
-      {/* 日志列表 */}
       <Box flexDirection="column">
         {entries.length === 0 && (
           <Box>
-            <Text color="gray" dimColor>
-              等待日志……
-            </Text>
+            <Text color="gray" dimColor>等待日志……</Text>
           </Box>
         )}
 
-        {entries.slice(-30).map((entry, i) => (
+        {entries.slice(-MAX_VISIBLE_LOGS).map((entry, i) => (
           <Box key={i} flexDirection="column" marginBottom={1}>
             <Box>
-              <Text color="gray" dimColor>
-                {formatTime(entry.timestamp)}{" "}
-              </Text>
-              <Text
-                color={eventColors[entry.type] || "white"}
-                bold
-              >
+              <Text color="gray" dimColor>{timestampToTime(entry.timestamp)} </Text>
+              <Text color={EVENT_COLORS[entry.type] || "white"} bold>
                 {entry.type}
               </Text>
             </Box>
             <Box paddingLeft={4}>
-              <Text color={eventColors[entry.type] || "white"}>
-                {formatData(entry)}
+              <Text color={EVENT_COLORS[entry.type] || "white"}>
+                {summarize(entry)}
               </Text>
             </Box>
           </Box>
@@ -114,34 +94,46 @@ const LogViewer: React.FC = () => {
   );
 };
 
-function formatTime(timestamp: string): string {
+/** 将 ISO 时间戳转为 HH:MM:SS */
+function timestampToTime(ts: string): string {
   try {
-    const d = new Date(timestamp);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+    const d = new Date(ts);
+    return [d.getHours(), d.getMinutes(), d.getSeconds()]
+      .map((n) => String(n).padStart(2, "0"))
+      .join(":");
   } catch {
-    return timestamp;
+    return ts;
   }
 }
 
-function formatData(entry: LogEntry): string {
-  const { data } = entry;
-  if (!data || Object.keys(data).length === 0) return "";
+/** 将日志条目压缩为一行摘要 */
+function summarize(entry: LogEntry): string {
+  const d = entry.data;
+  if (!d || Object.keys(d).length === 0) return "";
 
   switch (entry.type) {
     case "llm.request":
-      return `model=${data.model || "?"} messages=${(data.messageCount as number) || 0}`;
+      return `model=${d.model || "?"} messages=${(d.messageCount as number) || 0}`;
     case "llm.response":
-      return `tokens=${data.totalTokens || "?"}`;
+      return `tokens=${d.totalTokens || "?"}`;
     case "tool.start":
-      return `${data.tool || "?"} args=${data.args ? JSON.stringify(data.args).substring(0, 80) : ""}`;
+      return `${d.tool || "?"} args=${d.args ? JSON.stringify(d.args).substring(0, 80) : ""}`;
     case "tool.end":
-      if (data.success) return "✓ 成功";
-      return `✗ ${data.error || "失败"}`;
+      return d.success ? "✓ 成功" : `✗ ${d.error || "失败"}`;
     case "error":
-      return `${data.message || "未知错误"}`;
+      return `${d.message || "未知错误"}`;
     default:
-      return JSON.stringify(data).substring(0, 120);
+      return JSON.stringify(d).substring(0, 120);
   }
 }
+
+/** 日志查看器中的水平分隔线 */
+const Separator = () => (
+  <Box marginY={1}>
+    <Text color="gray" dimColor>
+      {"—".repeat(Math.max(10, (process.stdout.columns || 80) - 2))}
+    </Text>
+  </Box>
+);
 
 export default LogViewer;

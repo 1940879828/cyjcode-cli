@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Box, Text } from "ink";
 import { hasConfig } from "../config/store.js";
 import { useChat } from "./useChat.js";
@@ -7,41 +7,57 @@ import InputBox from "./InputBox.js";
 import { matchCommand } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
 
-const App: React.FC = () => {
+/**
+ * 命令输出自动清除的延迟（毫秒）。
+ * 设置一个较长值以避免 key 警告，实际 UI 中消息会自然上移。
+ */
+const COMMAND_FADE_DELAY = 10_000;
+
+const App = () => {
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [commandOutput, setCommandOutput] = useState<string | null>(null);
+  const { entries, isStreaming, streamingText, streamingReasoning, sendMessage, clearChat } = useChat();
 
   useEffect(() => {
     setConfigured(hasConfig());
   }, []);
 
-  const { entries, isStreaming, streamingText, sendMessage, clearChat } = useChat();
-  const [commandOutput, setCommandOutput] = useState<string | null>(null);
+  const handleCommand = useCallback(
+    (text: string): boolean => {
+      const cmd = matchCommand(text);
+      if (!cmd) return false;
+
+      if (cmd.name === "/clear") {
+        clearChat();
+        setCommandOutput("对话历史已清空");
+      } else {
+        setCommandOutput(cmd.handler());
+      }
+      setTimeout(() => setCommandOutput(null), COMMAND_FADE_DELAY);
+      return true;
+    },
+    [clearChat],
+  );
 
   const handleSubmit = useCallback(
     (text: string) => {
-      // 检查斜杠命令
-      const cmd = matchCommand(text);
-      if (cmd) {
-        if (cmd.name === "/clear") {
-          clearChat();
-          setCommandOutput("对话历史已清空");
-        } else {
-          const output = cmd.handler();
-          setCommandOutput(output);
+      // 拦截所有 / 开头输入：未识别命令不给 AI，防止配置错误时触发 API 调用
+      if (text.startsWith("/")) {
+        if (text.trim() === "/setup") {
+          setConfigured(false);
+          return;
         }
-        // 3 秒后清除命令输出
-        setTimeout(() => setCommandOutput(null), 3000);
+        if (handleCommand(text)) return;
+        setCommandOutput(`未知命令: ${text}\n输入 /help 查看可用命令`);
+        setTimeout(() => setCommandOutput(null), COMMAND_FADE_DELAY);
         return;
       }
-
-      // 普通消息
       setCommandOutput(null);
       sendMessage(text);
     },
-    [sendMessage, clearChat]
+    [handleCommand, sendMessage],
   );
 
-  // 配置检查中
   if (configured === null) {
     return (
       <Box padding={1}>
@@ -50,60 +66,40 @@ const App: React.FC = () => {
     );
   }
 
-  // 未配置 → 显示引导
   if (!configured) {
-    return (
-      <SetupWizard
-        onComplete={() => {
-          setConfigured(true);
-        }}
-      />
-    );
+    return <SetupWizard onComplete={() => setConfigured(true)} />;
   }
 
   return (
     <Box flexDirection="column" padding={1}>
-      {/* 标题栏 */}
       <Box marginBottom={1}>
         <Text color="cyan" bold>
           ⚡ cyjcode-cli v0.1
         </Text>
         <Text color="gray" dimColor>
-          {" "}
-          — 终端 AI 编程助手
+          {" "}— 终端 AI 编程助手
         </Text>
       </Box>
 
-      {/* 命令输出 */}
       {commandOutput && (
         <Box marginY={1} padding={1} borderStyle="single">
           <Text color="gray">{commandOutput}</Text>
         </Box>
       )}
 
-      {/* 消息列表 */}
-      <MessageList
-        entries={entries}
-        streamingText={streamingText}
-        isStreaming={isStreaming}
-      />
+      <MessageList entries={entries} streamingText={streamingText} streamingReasoning={streamingReasoning} isStreaming={isStreaming} />
 
-      {/* 分隔线 */}
       <Box marginY={1}>
         <Text color="gray" dimColor>
-          {"─".repeat(
-            Math.max(10, (process.stdout.columns || 80) - 2)
-          )}
+          {"─".repeat(Math.max(10, (process.stdout.columns || 80) - 2))}
         </Text>
       </Box>
 
-      {/* 输入框 */}
       <InputBox onSubmit={handleSubmit} disabled={isStreaming} />
 
-      {/* 提示 */}
       <Box marginTop={1}>
         <Text color="gray" dimColor>
-          /help 帮助 | /config 配置 | /clear 清空 | Ctrl+C 退出
+          /help 帮助 | /config 配置 | /clear 清空 | /setup 重配 | Ctrl+C 退出
         </Text>
       </Box>
     </Box>

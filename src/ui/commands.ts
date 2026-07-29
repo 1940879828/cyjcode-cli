@@ -39,6 +39,11 @@ export const commands: Command[] = [
     description: "清空对话历史",
     handler: () => "",
   },
+  {
+    name: "/setup",
+    description: "重新配置 API 连接",
+    handler: () => "",
+  },
 ];
 
 export function matchCommand(input: string): Command | null {

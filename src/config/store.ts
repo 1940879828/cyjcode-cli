@@ -17,18 +17,14 @@ export interface CyjConfig {
 const CONFIG_DIR = path.join(os.homedir(), ".cyjcode");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 
-// 配置持久化模块 
-const DEFAULT_CONFIG: CyjConfig = {
-  baseUrl: "https://api.openai.com/v1",
+// ─── 默认值（唯一配置源） ──────────────────────────
+
+/** 所有配置项的默认值，全局唯一来源 */
+export const DEFAULT_CONFIG: CyjConfig = {
+  baseUrl: "https://api.deepseek.com",
   apiKey: "",
-  model: "gpt-4o",
-  models: [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-turbo",
-    "gpt-3.5-turbo",
-    "o3-mini",
-  ],
+  model: "deepseek-v4-pro",
+  models: [],
 };
 
 function ensureDir(): void {

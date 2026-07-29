@@ -46,6 +46,12 @@ export interface ToolCallDelta {
 export type StreamEvent =
   | 
   { 
+    // DeepSeek 思考过程增量（reasoning_content）
+    type: "reasoning_delta"; 
+    content: string 
+  }
+  | 
+  { 
     // 文本增量 每条事件返回一个字两个字
     type: "text_delta"; 
     content: string 

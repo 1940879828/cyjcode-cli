@@ -1,78 +1,62 @@
-import React from "react";
 import { Box, Text } from "ink";
 import type { ChatEntry } from "./useChat.js";
+
+const MAX_VISIBLE_MESSAGES = 20;
 
 interface Props {
   entries: ChatEntry[];
   streamingText: string;
+  streamingReasoning: string;
   isStreaming: boolean;
 }
 
-const roleColors: Record<string, string> = {
+const ROLE_COLORS: Record<ChatEntry["role"], string> = {
   user: "green",
   assistant: "cyan",
+  thinking: "yellow",
   tool_call: "yellow",
   tool_result: "gray",
   error: "red",
 };
 
-const roleLabels: Record<string, string> = {
+const ROLE_LABELS: Record<ChatEntry["role"], string> = {
   user: "You",
   assistant: "cyjcode",
+  thinking: "Thinking",
   tool_call: "Tool",
   tool_result: "Result",
   error: "Error",
 };
 
-const MessageList: React.FC<Props> = ({ entries, streamingText, isStreaming }) => {
-  // 只显示最近的消息（最多 20 条），从底部截断
-  const displayEntries = entries.length > 20
-    ? entries.slice(-20)
+const MessageList = ({ entries, streamingText, streamingReasoning, isStreaming }: Props) => {
+  const visible = entries.length > MAX_VISIBLE_MESSAGES
+    ? entries.slice(-MAX_VISIBLE_MESSAGES)
     : entries;
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {displayEntries.length === 0 && !isStreaming && (
+      {visible.length === 0 && !isStreaming && (
         <Box>
           <Text color="gray">输入消息开始对话，输入 /help 查看帮助</Text>
         </Box>
       )}
 
-      {displayEntries.map((entry) => (
-        <Box key={entry.id} flexDirection="column" marginBottom={1}>
-          <Text color={roleColors[entry.role] || "white"} bold>
-            {roleLabels[entry.role] || entry.role}:
-          </Text>
+      {visible.map((entry) => (
+        <EntryRow key={entry.id} entry={entry} />
+      ))}
+
+      {isStreaming && streamingReasoning && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color="yellow" dimColor bold>Thinking:</Text>
           <Box paddingLeft={2}>
-            {entry.role === "tool_call" && entry.toolCall ? (
-              <Box flexDirection="column">
-                <Text color="yellow">{entry.toolCall.name}</Text>
-                <Text color="gray" dimColor>
-                  {JSON.stringify(entry.toolCall.arguments, null, 2)}
-                </Text>
-              </Box>
-            ) : entry.role === "tool_result" && entry.toolResult ? (
-              <Box flexDirection="column">
-                {entry.toolResult.result.success ? (
-                  <Text color="green">{entry.content}</Text>
-                ) : (
-                  <Text color="red">{entry.content}</Text>
-                )}
-              </Box>
-            ) : (
-              <Text color={roleColors[entry.role] || "white"}>
-                {entry.content}
-              </Text>
-            )}
+            <Text color="yellow" dimColor>{streamingReasoning}</Text>
           </Box>
         </Box>
-      ))}
+      )}
 
       {isStreaming && streamingText && (
         <Box flexDirection="column" marginBottom={1}>
-          <Text color="cyan" bold>
-            cyjcode:
-          </Text>
+          <Text color="cyan" bold>cyjcode:</Text>
           <Box paddingLeft={2}>
             <Text color="cyan">{streamingText}</Text>
           </Box>
@@ -81,5 +65,53 @@ const MessageList: React.FC<Props> = ({ entries, streamingText, isStreaming }) =
     </Box>
   );
 };
+
+const EntryRow = ({ entry }: { entry: ChatEntry }) => (
+  <Box flexDirection="column" marginBottom={1}>
+    <Text
+      color={ROLE_COLORS[entry.role]}
+      bold
+      dimColor={entry.role === "thinking"}
+    >
+      {ROLE_LABELS[entry.role]}:
+    </Text>
+    <Box paddingLeft={2}>{renderContent(entry)}</Box>
+  </Box>
+);
+
+const renderContent = (entry: ChatEntry) => {
+  if (entry.role === "tool_call" && entry.toolCall) {
+    return <ToolCallContent toolCall={entry.toolCall} />;
+  }
+  if (entry.role === "tool_result" && entry.toolResult) {
+    return <ToolResultContent toolResult={entry.toolResult} content={entry.content} />;
+  }
+  return (
+    <Text color={ROLE_COLORS[entry.role]} dimColor={entry.role === "thinking"}>
+      {entry.content}
+    </Text>
+  );
+};
+
+const ToolCallContent = ({ toolCall }: { toolCall: ChatEntry["toolCall"] }) => (
+  <Box flexDirection="column">
+    <Text color="yellow">{toolCall?.name}</Text>
+    <Text color="gray" dimColor>
+      {toolCall?.arguments ? JSON.stringify(toolCall.arguments, null, 2) : ""}
+    </Text>
+  </Box>
+);
+
+const ToolResultContent = ({
+  toolResult,
+  content,
+}: {
+  toolResult: ChatEntry["toolResult"];
+  content: string;
+}) => (
+  <Box flexDirection="column">
+    <Text color={toolResult?.result.success ? "green" : "red"}>{content}</Text>
+  </Box>
+);
 
 export default MessageList;
