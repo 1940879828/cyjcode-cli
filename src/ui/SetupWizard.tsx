@@ -1,12 +1,8 @@
 import { useState, useCallback, useLayoutEffect, useRef } from "react";
-import { Box, Text } from "ink";
-import { useStdin } from "ink";
+import { Box, Text, useCursor, useInput, usePaste, measureElement } from "ink";
+import type { CursorPosition } from "ink";
+import stringWidth from "string-width";
 import { setConfig, DEFAULT_CONFIG } from "../config/store.js";
-
-// ─── 括号粘贴标记 ──────────────────────────────────
-
-const PASTE_START = "\u001B[200~";
-const PASTE_END = "\u001B[201~";
 
 type Step = "baseUrl" | "apiKey" | "model" | "confirm";
 
@@ -20,15 +16,15 @@ const STEP_LABELS: Record<Step, string> = {
 
 interface Props {
   onComplete: () => void;
+  isExiting?: boolean;
 }
 
-const SetupWizard = ({ onComplete }: Props) => {
+const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
   const [step, setStep] = useState<Step>("baseUrl");
   const [baseUrl, setBaseUrl] = useState(DEFAULT_CONFIG.baseUrl);
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(DEFAULT_CONFIG.model);
   const [inputValue, setInputValue] = useState("");
-  const { stdin, setRawMode } = useStdin();
 
   // ref 避免闭包捕获过期值
   const inputRef = useRef(inputValue);
@@ -41,7 +37,6 @@ const SetupWizard = ({ onComplete }: Props) => {
   apiKeyRef.current = apiKey;
   const modelRef = useRef(model);
   modelRef.current = model;
-  const pasteRef = useRef({ active: false, chunks: [] as string[] });
 
   const stepIdx = STEP_ORDER.indexOf(step);
 
@@ -76,88 +71,34 @@ const SetupWizard = ({ onComplete }: Props) => {
     setInputValue("");
   }, [onComplete]);
 
-  /** 处理解析后的输入字符串 */
-  const processInput = (raw: string): void => {
-    if (raw.includes("\r")) {
-      if (stepRef.current === "confirm") return;
-      applyStepValue();
-      raw = raw.replace(/\r/g, "");
+  const appendInput = useCallback((input: string) => {
+    setInputValue((prev) => prev + input);
+  }, []);
+
+  const removeLastInputCharacter = useCallback(() => {
+    setInputValue((prev) => Array.from(prev).slice(0, -1).join(""));
+  }, []);
+
+  useInput((input, key) => {
+    if (stepRef.current === "confirm") {
+      if (key.return || input === "y" || input === "Y") {
+        applyStepValue();
+      }
+      return;
     }
 
-    const backspaces = (raw.match(/[\b\x7F]/g) ?? []).length;
-    const clean = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+    if (key.return) return applyStepValue();
+    if (key.backspace || key.delete) return removeLastInputCharacter();
+    if (key.ctrl || key.meta || input.length === 0) return;
 
-    if (backspaces > 0) {
-      setInputValue((prev) => prev.slice(0, Math.max(0, prev.length - backspaces)));
+    appendInput(input);
+  }, { isActive: !isExiting });
+
+  usePaste((input) => {
+    if (stepRef.current !== "confirm") {
+      appendInput(input);
     }
-    if (clean.length > 0) {
-      setInputValue((prev) => prev + clean);
-    }
-  };
-
-  useLayoutEffect(() => {
-    if (!stdin) return;
-
-    setRawMode(true);
-    process.stdout.write("\u001B[?2004h");
-
-    const handleData = (data: Buffer) => {
-      const raw = String(data);
-
-      // 确认页：Y 键确认
-      if (stepRef.current === "confirm") {
-        const printable = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
-        if (printable === "y" || printable === "Y" || raw === "\r") {
-          applyStepValue();
-        }
-        return;
-      }
-
-      // ── 括号粘贴处理 ──
-      if (raw.includes(PASTE_START)) {
-        pasteRef.current.active = true;
-        pasteRef.current.chunks = [];
-        const after = raw.slice(raw.indexOf(PASTE_START) + PASTE_START.length);
-        const endIdx = after.indexOf(PASTE_END);
-        if (endIdx !== -1) {
-          pasteRef.current.active = false;
-          const pasteContent = after.slice(0, endIdx);
-          const remaining = after.slice(endIdx + PASTE_END.length);
-          if (pasteContent) setInputValue((prev) => prev + pasteContent);
-          if (remaining) processInput(remaining);
-          return;
-        }
-        pasteRef.current.chunks.push(after);
-        return;
-      }
-
-      if (pasteRef.current.active) {
-        pasteRef.current.chunks.push(raw);
-        const combined = pasteRef.current.chunks.join("");
-        const endIdx = combined.indexOf(PASTE_END);
-        if (endIdx !== -1) {
-          pasteRef.current.active = false;
-          const pasteContent = combined.slice(0, endIdx);
-          const remaining = combined.slice(endIdx + PASTE_END.length);
-          pasteRef.current.chunks = [];
-          if (pasteContent) setInputValue((prev) => prev + pasteContent);
-          if (remaining) processInput(remaining);
-        }
-        return;
-      }
-
-      // ── 普通输入 ──
-      processInput(raw);
-    };
-
-    stdin.on("data", handleData);
-    return () => {
-      stdin.off("data", handleData);
-      setRawMode(false);
-      process.stdout.write("\u001B[?2004l");
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stdin]);
+  }, { isActive: !isExiting });
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -186,6 +127,7 @@ const SetupWizard = ({ onComplete }: Props) => {
         baseUrl={baseUrl}
         apiKey={apiKey}
         model={model}
+        isExiting={isExiting}
       />
 
       <Box marginY={1}>
@@ -201,32 +143,34 @@ const StepContent = ({
   baseUrl,
   apiKey,
   model,
+  isExiting,
 }: {
   step: Step;
   inputValue: string;
   baseUrl: string;
   apiKey: string;
   model: string;
+  isExiting: boolean;
 }) => {
   switch (step) {
     case "baseUrl":
       return (
         <StepBox title="① API Base URL" hint="输入 OpenAI 兼容的 API 端点地址" defaultValue={DEFAULT_CONFIG.baseUrl}>
-          <PromptRow value={inputValue} placeholder="(使用默认值)" />
+          <PromptRow value={inputValue} placeholder="(使用默认值)" cursorEnabled={!isExiting} />
         </StepBox>
       );
 
     case "apiKey":
       return (
         <StepBox title="② API Key" hint="输入您的 API 密钥">
-          <PromptRow value={inputValue} placeholder="" />
+          <PromptRow value={inputValue} placeholder="" cursorEnabled={!isExiting} />
         </StepBox>
       );
 
     case "model":
       return (
         <StepBox title="③ 模型名称" hint="输入要使用的 LLM 模型名称" defaultValue={DEFAULT_CONFIG.model}>
-          <PromptRow value={inputValue} placeholder="(使用默认值)" />
+          <PromptRow value={inputValue} placeholder="(使用默认值)" cursorEnabled={!isExiting} />
         </StepBox>
       );
 
@@ -271,12 +215,51 @@ const StepBox = ({
   </Box>
 );
 
-const PromptRow = ({ value, placeholder }: { value: string; placeholder: string }) => (
-  <Box marginTop={1}>
-    <Text color="green" bold>▸ </Text>
-    <Text>{value || placeholder}</Text>
-    <Text color="gray">|</Text>
-  </Box>
-);
+const PromptRow = ({
+  value,
+  placeholder,
+  cursorEnabled,
+}: {
+  value: string;
+  placeholder: string;
+  cursorEnabled: boolean;
+}) => {
+  const { setCursorPosition } = useCursor();
+  const inputLineRef = useRef<any>(null);
+  const [cursorOrigin, setCursorOrigin] = useState<CursorPosition | null>(null);
+
+  useLayoutEffect(() => {
+    if (!cursorEnabled || !inputLineRef.current) {
+      setCursorOrigin(null);
+      return;
+    }
+    const metrics = measureElement(inputLineRef.current);
+    if (metrics) {
+      setCursorOrigin({ x: metrics.x, y: metrics.y });
+    }
+  }, [cursorEnabled, value, placeholder]);
+
+  setCursorPosition(
+    cursorEnabled && cursorOrigin
+      ? {
+          x: cursorOrigin.x + stringWidth(value),
+          y: cursorOrigin.y,
+        }
+      : undefined,
+  );
+
+  return (
+    <Box marginTop={1}>
+      <Text color="green" bold>▸ </Text>
+      <Box ref={inputLineRef}>
+        {value ? (
+          <Text>{value}</Text>
+        ) : (
+          <Text color="gray" dimColor>{placeholder}</Text>
+        )}
+      </Box>
+    </Box>
+  );
+};
 
 export default SetupWizard;

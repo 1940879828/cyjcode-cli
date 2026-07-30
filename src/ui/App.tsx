@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
-import { Box, Text } from "ink";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { Box, Text, useApp, useInput } from "ink";
 import { hasConfig, getConfig } from "../config/store.js";
 import { useChat } from "./useChat.js";
 import MessageList from "./MessageList.js";
@@ -18,11 +18,43 @@ const COMMAND_FADE_DELAY = 10_000;
 const App = () => {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [commandOutput, setCommandOutput] = useState<string | null>(null);
+  const [isExiting, setIsExiting] = useState(false);
+  const exitingRef = useRef(false);
+  const { exit, waitUntilRenderFlush } = useApp();
   const { entries, isStreaming, streamingText, streamingReasoning, sendMessage, clearChat } = useChat();
 
   useEffect(() => {
     setConfigured(hasConfig());
   }, []);
+
+  const requestExit = useCallback(() => {
+    if (exitingRef.current) return;
+    exitingRef.current = true;
+    setIsExiting(true);
+  }, []);
+
+  useInput(
+    (input, key) => {
+      if ((key.ctrl && input.toLowerCase() === "c") || input === "\u0003") {
+        requestExit();
+      }
+    },
+    { isActive: !isExiting },
+  );
+
+  useEffect(() => {
+    if (!isExiting) return;
+
+    let cancelled = false;
+    void (async () => {
+      await waitUntilRenderFlush();
+      if (!cancelled) exit();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [exit, isExiting, waitUntilRenderFlush]);
 
   const handleCommand = useCallback(
     (text: string): boolean => {
@@ -69,7 +101,7 @@ const App = () => {
   }
 
   if (!configured) {
-    return <SetupWizard onComplete={() => setConfigured(true)} />;
+    return <SetupWizard onComplete={() => setConfigured(true)} isExiting={isExiting} />;
   }
 
   const config = getConfig();
@@ -95,9 +127,9 @@ const App = () => {
         </Box>
       )}
 
-      <InputBox onSubmit={handleSubmit} disabled={isStreaming} />
+      <InputBox onSubmit={handleSubmit} disabled={isStreaming} isExiting={isExiting} />
 
-      <Box paddingX={1} marginTop={1}>
+      <Box paddingX={1} >
         <Text color="gray" dimColor>
           /help 帮助 | /config 配置 | /clear 清空 | /setup 重配 | Ctrl+C 退出
         </Text>

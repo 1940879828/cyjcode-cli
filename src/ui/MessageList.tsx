@@ -34,13 +34,13 @@ const MessageList = ({ entries, streamingText, streamingReasoning, isStreaming }
     : entries;
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column">
       {visible.map((entry) => (
         <EntryRow key={entry.id} entry={entry} />
       ))}
 
       {isStreaming && streamingReasoning && (
-        <Box flexDirection="column" marginBottom={1}>
+        <Box flexDirection="column">
           <Text color="yellow" dimColor bold>Thinking:</Text>
           <Box paddingLeft={2}>
             <Text color="yellow" dimColor>{streamingReasoning}</Text>
@@ -49,7 +49,7 @@ const MessageList = ({ entries, streamingText, streamingReasoning, isStreaming }
       )}
 
       {isStreaming && streamingText && (
-        <Box flexDirection="column" marginBottom={1}>
+        <Box flexDirection="column">
           <Text color="cyan" bold>cyjcode:</Text>
           <Box paddingLeft={2}>
             <Text color="cyan">{streamingText}</Text>
@@ -61,7 +61,7 @@ const MessageList = ({ entries, streamingText, streamingReasoning, isStreaming }
 };
 
 const EntryRow = ({ entry }: { entry: ChatEntry }) => (
-  <Box flexDirection="column" marginBottom={1}>
+  <Box flexDirection="column" >
     <Text
       color={ROLE_COLORS[entry.role]}
       bold
