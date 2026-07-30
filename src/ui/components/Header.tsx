@@ -10,7 +10,6 @@ interface HeaderProps {
 }
 
 const Header = ({ version, model, thinking, reasoningEffort }: HeaderProps) => {
-  const termWidth = 80;
   const infoRows = [
     { label: "Model", value: model },
     { label: "Thinking", value: thinking ? "Enabled" : "Disabled" },
@@ -24,7 +23,7 @@ const Header = ({ version, model, thinking, reasoningEffort }: HeaderProps) => {
       borderColor={THEME_COLOR}
       paddingX={1}
       paddingY={0}
-      marginBottom={0}
+      marginBottom={1}
       flexDirection="column"
       width={60}
     >

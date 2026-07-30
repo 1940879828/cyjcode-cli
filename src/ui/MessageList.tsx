@@ -10,18 +10,32 @@ interface Props {
   isStreaming: boolean;
 }
 
-const ROLE_COLORS: Record<ChatEntry["role"], string> = {
-  user: "green",
-  assistant: "cyan",
+type MessageRowEntry = Pick<
+  ChatEntry,
+  "role" | "content" | "toolCall" | "toolResult"
+>;
+
+const ROLE_COLORS: Record<ChatEntry["role"], string | undefined> = {
+  user: "#505050",
+  assistant: undefined,
   thinking: "yellow",
   tool_call: "yellow",
   tool_result: "gray",
   error: "red",
 };
 
+const ROLE_BACKGROUND_COLORS: Record<ChatEntry["role"], string | undefined> = {
+  user: "#373737",
+  assistant: undefined,
+  thinking: undefined,
+  tool_call: undefined,
+  tool_result: undefined,
+  error: undefined,
+};
+
 const ROLE_LABELS: Record<ChatEntry["role"], string> = {
   user: "You",
-  assistant: "cyjcode",
+  assistant: "",
   thinking: "Thinking",
   tool_call: "Tool",
   tool_result: "Result",
@@ -36,52 +50,46 @@ const MessageList = ({ entries, streamingText, streamingReasoning, isStreaming }
   return (
     <Box flexDirection="column">
       {visible.map((entry) => (
-        <EntryRow key={entry.id} entry={entry} />
+        <MessageRow key={entry.id} entry={entry} />
       ))}
 
       {isStreaming && streamingReasoning && (
-        <Box flexDirection="column">
-          <Text color="yellow" dimColor bold>Thinking:</Text>
-          <Box paddingLeft={2}>
-            <Text color="yellow" dimColor>{streamingReasoning}</Text>
-          </Box>
-        </Box>
+        <MessageRow
+          entry={{ role: "thinking", content: streamingReasoning }}
+        />
       )}
 
       {isStreaming && streamingText && (
-        <Box flexDirection="column">
-          <Text color="cyan" bold>cyjcode:</Text>
-          <Box paddingLeft={2}>
-            <Text color="cyan">{streamingText}</Text>
-          </Box>
-        </Box>
+        <MessageRow entry={{ role: "assistant", content: streamingText }} />
       )}
     </Box>
   );
 };
 
-const EntryRow = ({ entry }: { entry: ChatEntry }) => (
-  <Box flexDirection="column" >
+const MessageRow = ({ entry }: { entry: MessageRowEntry }) => (
+  <Box backgroundColor={ROLE_BACKGROUND_COLORS[entry.role]}>
     <Text
       color={ROLE_COLORS[entry.role]}
       bold
       dimColor={entry.role === "thinking"}
     >
-      {ROLE_LABELS[entry.role]}:
+      {entry.role === "user" ? "❯ " : ROLE_LABELS[entry.role]}
+      {entry.role === "thinking" ? ": " : ""}
     </Text>
-    <Box paddingLeft={2}>{renderContent(entry)}</Box>
+    <Box>{renderContent(entry)}</Box>
   </Box>
 );
 
-const renderContent = (entry: ChatEntry) => {
+const renderContent = (entry: MessageRowEntry) => {
   if (entry.role === "tool_call" && entry.toolCall) {
     return <ToolCallContent toolCall={entry.toolCall} />;
   }
   if (entry.role === "tool_result" && entry.toolResult) {
     return <ToolResultContent toolResult={entry.toolResult} content={entry.content} />;
   }
+  const color = entry.role === "user" ? "gray" : ROLE_COLORS[entry.role];
   return (
-    <Text color={ROLE_COLORS[entry.role]} dimColor={entry.role === "thinking"}>
+    <Text color={color} dimColor={entry.role === "thinking"}>
       {entry.content}
     </Text>
   );
