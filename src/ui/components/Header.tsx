@@ -1,6 +1,11 @@
 import { Box, Text } from "ink";
 
-const THEME_COLOR = "#3964FE";
+const BORDER_COLOR = "#E6EBF2";
+const TIGA_RED = "#E24B5A";
+const TIMER_BLUE = "#55A8E8";
+const ENERGY_GOLD = "#FFD75F";
+const LABEL_COLOR = "#E6EBF2";
+const VALUE_COLOR = "#F5F7FF";
 
 interface HeaderProps {
   version: string;
@@ -20,22 +25,29 @@ const Header = ({ version, model, thinking, reasoningEffort }: HeaderProps) => {
   return (
     <Box
       borderStyle="round"
-      borderColor={THEME_COLOR}
+      borderColor={BORDER_COLOR}
       paddingX={1}
       paddingY={0}
       marginBottom={1}
       flexDirection="column"
       width={60}
     >
-      <Box marginBottom={1}>
-        <Text color={THEME_COLOR} bold>{`>_ Tiga Code`}</Text>
-        <Text dimColor>{`    (V${version})`}</Text>
+      <Box marginBottom={1} justifyContent="space-between">
+        <Text bold>
+          <Text color={ENERGY_GOLD}>{">_ "}</Text>
+          <Text color={TIGA_RED}>T</Text>
+          <Text color={TIGA_RED}>i</Text>
+          <Text color={TIGA_RED}>g</Text>
+          <Text color={TIGA_RED}>a</Text>
+          <Text color={TIMER_BLUE}>{" Code"}</Text>
+        </Text>
+        <Text color={ENERGY_GOLD}>{`(V${version})`}</Text>
       </Box>
 
       {infoRows.map(({ label, value }) => (
         <Box key={label} justifyContent="space-between">
-          <Text>{label}</Text>
-          <Text>{value}</Text>
+          <Text color={LABEL_COLOR}>{label}</Text>
+          <Text color={VALUE_COLOR}>{value}</Text>
         </Box>
       ))}
     </Box>
