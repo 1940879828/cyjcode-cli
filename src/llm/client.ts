@@ -23,6 +23,9 @@ export interface StreamChatOptions {
 // 新建一个http客户端 每次发请求都new一个 放一下配置字符串
 function buildClient(): OpenAI {
   const config = getConfig();
+  if (!config.apiKey) {
+    throw new Error("API Key 未配置，请先运行 /setup 进行配置");
+  }
   return new OpenAI({
     baseURL: config.baseUrl,
     apiKey: config.apiKey,
@@ -81,9 +84,9 @@ export async function* streamChat(
      */
     // DeepSeek 特有参数 thinking 不在 OpenAI 类型定义中
     // 使用 any 绕过类型检查，运行时完全兼容
+    // 注意：不能解耦 create 方法，否则 this 上下文丢失导致 _client 为 undefined
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const create = client.chat.completions.create as any;
-    const stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> = await create({
+    const stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> = await (client.chat.completions as any).create({
       model: config.model,
       messages: openaiMessages,
       stream: true,
