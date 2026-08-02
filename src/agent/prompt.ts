@@ -5,7 +5,7 @@ export function buildSystemPrompt(): string {
     .map((t) => `- ${t.name}: ${t.description}`)
     .join("\n");
 
-  return `你是一个终端编程助手 (cyjcode-cli)，运行在用户的本地环境中。
+  return `你是一个终端编程助手 (tigacode-cli)，运行在用户的本地环境中。
 
 当前工作目录: ${process.cwd()}
 

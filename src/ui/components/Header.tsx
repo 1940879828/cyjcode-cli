@@ -6,7 +6,9 @@ const TIMER_BLUE = "#55A8E8";
 const ENERGY_GOLD = "#FFD75F";
 const LABEL_COLOR = "#E6EBF2";
 const VALUE_COLOR = "#F5F7FF";
-const TIGA_ART = String.raw`
+const TIGA_ART = String.raw``;
+/** 不删除 特意保留 */
+const TIGA_ART_V2 = String.raw`
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⠀⠀⠈⢢⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠄⠋⠀⠠⢄⠀⢳⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -59,7 +61,7 @@ const Header = ({ version, model, thinking, reasoningEffort }: HeaderProps) => {
       paddingY={0}
       marginBottom={1}
       flexDirection="column"
-      width={140}
+      width={60}
     >
       <Box marginBottom={1}>
         <Text color={BORDER_COLOR}>{TIGA_ART}</Text>
