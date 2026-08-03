@@ -14,6 +14,7 @@
     "devrecord": "npm run build:babel && node .babel-out/cli.js --record default",
     "devmock": "npm run build:babel && node .babel-out/cli.js --mock default",
     "typecheck": "tsc -p ./ --noEmit",
+    "test:inputbox": "node --import tsx --test tests/inputBoxModel.test.ts",
     "build:babel": "babel src --out-dir .babel-out --extensions .ts,.tsx",
     "build:bundle": "esbuild .babel-out/cli.js --bundle --platform=node --format=esm --outfile=dist/cli.js --banner:js=\"#!/usr/bin/env node\" --packages=external",
     "build": "npm run typecheck && npm run build:babel && npm run build:bundle"

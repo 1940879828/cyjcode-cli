@@ -13,6 +13,8 @@
 - `src/tools/`：提供给 Agent 使用的文件读写、搜索、重命名和目录浏览工具。
 - `src/config/`：本地配置存储。
 - `src/devmock/`：开发录制与 mock 回放，不参与生产构建。
+- `src/ui/`：其中 `inputBoxModel.ts` 为输入框纯函数核心（reducer + 视图选择器），`InputBox.tsx` 只做装配、按键翻译与副作用消费，`textEditor.ts` 提供 `TextCursor` 纯计算原语。
+- `tests/`：单元/集成测试，如 `tests/inputBoxModel.test.ts`（输入框核心逻辑）。
 - `docs/`：需求、迭代计划和运维文档。
 - `.babel-out/`、`dist/`：构建产物，不要手工修改，也不要提交。
 - `mockdata/`：本地开发录制数据，不要提交真实敏感信息。
@@ -39,6 +41,16 @@
 - 业务逻辑（纯函数）与 I/O/框架严格分离
 - 第一性原理：回归问题本质思考，不盲从现有方案，不复制惯性做法
 - 奥卡姆剃刀：如无必要勿增实体，优先选最简单的实现
+- 不需要useMemo、memo和useCallback，项目有React19 Compiler
+
+## 输入框架构约定（InputBox）
+
+输入框为「纯函数核心 + 精简 UI」分层，状态与 React 解耦：
+
+- 状态单一来源为 `InputBoxState`；按键经 `resolveInputBoxEvent` 翻译成 `InputBoxEvent`，再由 `reduceInputBoxState` 产出 `{ state, effects }`。
+- 副作用（提交等）以 `effects` 数组返回，由 UI 层消费，reducer 保持纯函数。
+- 视图由 `selectInputBoxView` 独立推导；新增功能（历史、下拉框）只在 `inputBoxModel.ts` 加状态与分支，UI 几乎不动。
+- 该核心逻辑须有单元测试，改动后运行 `npm run test:inputbox`。
 
 ## 常用命令
 
@@ -47,11 +59,12 @@ npm run dev          # Babel watch + Node watch 开发模式
 npm run dev:tsx      # 使用 tsx 直接运行，适合快速调试
 npm run typecheck    # TypeScript 类型检查
 npm run build        # 类型检查、Babel 编译并打包
+npm run test:inputbox# 运行输入框核心单元测试
 npm run devrecord    # 录制默认开发会话
 npm run devmock      # 回放 mockdata/default.json
 ```
 
-完成代码修改后，至少运行 `npm run typecheck`；涉及构建流程、入口或打包行为的修改还要运行 `npm run build`。如果测试或验证因环境、凭据或外部服务不可用而跳过，应在交付说明中明确写出。
+完成代码修改后，至少运行 `npm run typecheck`；修改 `src/ui/inputBoxModel.ts` 还需运行 `npm run test:inputbox`；涉及构建流程、入口或打包行为的修改还要运行 `npm run build`。如果测试或验证因环境、凭据或外部服务不可用而跳过，应在交付说明中明确写出。
 
 ## Git 注意事项
 

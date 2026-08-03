@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import {
   Box,
   Text,
@@ -10,15 +11,22 @@ import {
 } from "ink";
 import type { CursorPosition, DOMElement, Key } from "ink";
 import stringWidth from "string-width";
-import { TextCursor } from "./textEditor.js";
+import {
+  createInputBoxState,
+  reduceInputBoxState,
+  resolveInputBoxEvent,
+  selectInputBoxView,
+} from "./inputBoxModel.js";
+import type {
+  InputBoxEffect,
+  InputBoxEvent,
+  InputBoxView,
+  InputBoxState,
+} from "./inputBoxModel.js";
 
 const PROMPT = "❯ ";
 const PROMPT_WIDTH = stringWidth(PROMPT);
-
-interface BufferState {
-  text: string;
-  cursor: number;
-}
+const FALLBACK_SCREEN_WIDTH = 80;
 
 interface Props {
   onSubmit: (text: string) => void;
@@ -26,10 +34,17 @@ interface Props {
   isExiting?: boolean;
 }
 
-type EditorAction = (cursor: TextCursor) => TextCursor;
+interface InputBoxEffectHandlers {
+  onSubmit: (text: string) => void;
+}
 
-const normalizeInput = (input: string): string =>
-  input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+// 获取当前终端的宽度（以"列数"为单位）
+const getScreenWidth = (columns: number | undefined): number =>
+  columns ?? process.stdout.columns ?? FALLBACK_SCREEN_WIDTH;
+
+// 输入框实际可用的宽度（列数）
+const getInputColumns = (screenWidth: number): number =>
+  Math.max(1, screenWidth - PROMPT_WIDTH - 1);
 
 const getLayoutRoot = (node: DOMElement): DOMElement => {
   let current = node;
@@ -37,150 +52,119 @@ const getLayoutRoot = (node: DOMElement): DOMElement => {
   return current;
 };
 
-const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
-  const [state, setState] = useState<BufferState>({ text: "", cursor: 0 });
-  const [cursorOrigin, setCursorOrigin] = useState<CursorPosition | null>(null);
-  const inputTextRef = useRef<DOMElement | null>(null);
+const measureCursorOrigin = (node: DOMElement, rows: number): CursorPosition => {
+  const metrics = measureElement(node);
+  const rootMetrics = measureElement(getLayoutRoot(node));
+  // Ink omits the trailing newline in fullscreen output, but useCursor still
+  // positions from the post-output row. Nudge y only for that render path.
+  const fullscreenOffset =
+    process.stdout.isTTY && rootMetrics.height >= rows ? 1 : 0;
+  return { x: metrics.x, y: metrics.y + fullscreenOffset };
+};
+
+const samePosition = (
+  left: CursorPosition | null,
+  right: CursorPosition,
+): boolean => left?.x === right.x && left.y === right.y;
+
+const runInputBoxEffect = (
+  effect: InputBoxEffect,
+  handlers: InputBoxEffectHandlers,
+) => {
+  if (effect.type === "submit") handlers.onSubmit(effect.text);
+};
+
+const useTerminalCursor = ({
+  isActive,
+  inputRef,
+  position,
+  rows,
+}: {
+  isActive: boolean;
+  inputRef: RefObject<DOMElement | null>;
+  position: InputBoxView["cursorPosition"];
+  rows: number;
+}) => {
+  const [origin, setOrigin] = useState<CursorPosition | null>(null);
   const { setCursorPosition } = useCursor();
-  const { columns, rows } = useWindowSize();
-
-  const screenWidth = columns ?? process.stdout.columns ?? 80;
-  const inputColumns = Math.max(1, screenWidth - PROMPT_WIDTH - 1);
-  const isActive = !disabled && !isExiting;
-  const editor = TextCursor.fromText(state.text, inputColumns, state.cursor);
-  const cursorPosition = editor.getPosition();
-
-  const stateRef = useRef(state);
-  stateRef.current = state;
-  const submitRef = useRef(onSubmit);
-  submitRef.current = onSubmit;
 
   useLayoutEffect(() => {
-    if (!isActive || !inputTextRef.current) {
-      setCursorOrigin((previous) => (previous === null ? previous : null));
+    if (!isActive || !inputRef.current) {
+      setOrigin((previous) => (previous === null ? previous : null));
       return;
     }
 
-    const metrics = measureElement(inputTextRef.current);
-    const rootMetrics = measureElement(getLayoutRoot(inputTextRef.current));
-    // Ink omits the trailing newline in fullscreen output, but useCursor still
-    // positions from the post-output row. Nudge y only for that render path.
-    const fullscreenOffset =
-      process.stdout.isTTY && rootMetrics.height >= rows ? 1 : 0;
-    const next = { x: metrics.x, y: metrics.y + fullscreenOffset };
-    setCursorOrigin((previous) =>
-      previous?.x === next.x && previous.y === next.y ? previous : next,
-    );
+    const next = measureCursorOrigin(inputRef.current, rows);
+    setOrigin((previous) => (samePosition(previous, next) ? previous : next));
   });
 
   setCursorPosition(
-    isActive && cursorOrigin
+    isActive && origin
       ? {
-          x: cursorOrigin.x + cursorPosition.column,
-          y: cursorOrigin.y + cursorPosition.line,
+          x: origin.x + position.column,
+          y: origin.y + position.line,
         }
       : undefined,
   );
+};
 
-  const updateFromEditor = (action: EditorAction) => {
-    setState((previous) => {
-      const current = TextCursor.fromText(
-        previous.text,
-        inputColumns,
-        previous.cursor,
-      );
-      const next = action(current);
-      return { text: next.text, cursor: next.offset };
+const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
+  const [inputState, setInputState] = useState<InputBoxState>(() =>
+    createInputBoxState(),
+  );
+  const inputTextRef = useRef<DOMElement | null>(null);
+  const onSubmitRef = useRef(onSubmit);
+  const { columns, rows } = useWindowSize();
+
+  onSubmitRef.current = onSubmit;
+
+  const screenWidth = getScreenWidth(columns);
+  const inputColumns = getInputColumns(screenWidth);
+  const layout = { inputColumns };
+  const isActive = !disabled && !isExiting;
+  const view = selectInputBoxView(inputState, layout);
+
+  useTerminalCursor({
+    isActive,
+    inputRef: inputTextRef,
+    position: view.cursorPosition,
+    rows,
+  });
+
+  const dispatchInputEvent = (event: InputBoxEvent) => {
+    setInputState((previous) => {
+      const next = reduceInputBoxState(previous, event, layout);
+      if (next.state === previous && next.effects.length === 0) {
+        return previous;
+      }
+
+      for (const effect of next.effects) {
+        runInputBoxEffect(effect, { onSubmit: onSubmitRef.current });
+      }
+
+      return next.state;
     });
   };
 
-  const insertText = (input: string) => {
-    if (input.length === 0) return;
-    updateFromEditor((cursor) => cursor.insert(normalizeInput(input)));
-  };
-
-  const submit = () => {
-    const current = stateRef.current.text.trim();
-    if (!current) return;
-
-    submitRef.current(current);
-    setState({ text: "", cursor: 0 });
-  };
-
-  const handleCtrl = (input: string) => {
-    const actions: Record<string, EditorAction> = {
-      a: (cursor) => cursor.startOfLine(),
-      b: (cursor) => cursor.left(),
-      d: (cursor) => cursor.deleteForward(),
-      e: (cursor) => cursor.endOfLine(),
-      f: (cursor) => cursor.right(),
-      h: (cursor) => cursor.backspace(),
-      k: (cursor) => cursor.deleteToLineEnd(),
-      u: (cursor) => cursor.deleteToLineStart(),
-      w: (cursor) => cursor.deleteWordBefore(),
-    };
-    const action = actions[input.toLowerCase()];
-    if (action) updateFromEditor(action);
-  };
-
-  const handleMeta = (input: string) => {
-    const actions: Record<string, EditorAction> = {
-      b: (cursor) => cursor.prevWord(),
-      d: (cursor) => cursor.deleteWordAfter(),
-      f: (cursor) => cursor.nextWord(),
-    };
-    const action = actions[input.toLowerCase()];
-    if (action) updateFromEditor(action);
-  };
-
   const handleInput = (input: string, key: Key) => {
-      if (key.return) {
-        if (key.shift || key.meta) insertText("\n");
-        else submit();
-        return;
-      }
-
-      if (key.backspace) {
-        updateFromEditor((cursor) =>
-          key.ctrl || key.meta ? cursor.deleteWordBefore() : cursor.backspace(),
-        );
-        return;
-      }
-
-      if (key.delete) {
-        updateFromEditor((cursor) =>
-          key.meta ? cursor.deleteToLineEnd() : cursor.deleteForward(),
-        );
-        return;
-      }
-
-      if (key.home) return updateFromEditor((cursor) => cursor.startOfLine());
-      if (key.end) return updateFromEditor((cursor) => cursor.endOfLine());
-      if (key.upArrow) return updateFromEditor((cursor) => cursor.up());
-      if (key.downArrow) return updateFromEditor((cursor) => cursor.down());
-      if (key.leftArrow) {
-        return updateFromEditor((cursor) =>
-          key.ctrl || key.meta ? cursor.prevWord() : cursor.left(),
-        );
-      }
-      if (key.rightArrow) {
-        return updateFromEditor((cursor) =>
-          key.ctrl || key.meta ? cursor.nextWord() : cursor.right(),
-        );
-      }
-
-      if (key.ctrl) return handleCtrl(input);
-      if (key.meta) return handleMeta(input);
-      if (input.length > 0) insertText(input);
+    dispatchInputEvent(resolveInputBoxEvent(input, key));
   };
 
   useInput(handleInput, { isActive });
-  usePaste(insertText, { isActive });
+  usePaste((text) => dispatchInputEvent({ type: "insertText", text }), { isActive });
 
-  const renderedText = editor.getRenderedText();
+  const renderedText = view.renderedText || " ";
+  const inputColor = disabled ? "#888888" : undefined;
 
   return (
     <Box flexDirection="column" paddingX={0} marginTop={1}>
+      {disabled && (
+        <Box>
+          <Text color="gray" dimColor>
+            等待回复中……
+          </Text>
+        </Box>
+      )}
       <Box
         width={screenWidth - 1}
         borderStyle="single"
@@ -194,18 +178,9 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
           {PROMPT}
         </Text>
         <Box ref={inputTextRef} width={inputColumns} flexShrink={1}>
-          <Text color={disabled ? "#888888" : undefined}>
-            {renderedText || " "}
-          </Text>
+          <Text color={inputColor}>{renderedText}</Text>
         </Box>
       </Box>
-      {disabled && (
-        <Box>
-          <Text color="gray" dimColor>
-            等待回复中……
-          </Text>
-        </Box>
-      )}
     </Box>
   );
 };
