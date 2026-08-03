@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { useState, useEffect } from "react";
+import { Box, Text } from "ink";
 import { hasConfig, getConfig } from "../config/store.js";
 import { useChat } from "./useChat.js";
+import { useExit } from "./useExit.js";
 import MessageList from "./MessageList.js";
 import InputBox from "./InputBox.js";
 import { matchCommand } from "./commands.js";
@@ -20,47 +21,14 @@ const App = () => {
   const [configured, setConfigured] = useState<boolean | null>(null);
   /** 命令输出的临时提示文本，超时后自动清除 */
   const [commandOutput, setCommandOutput] = useState<string | null>(null);
-  /** 是否正在退出，触发退出后的异步清理流程 */
-  const [isExiting, setIsExiting] = useState(false);
-  /** 同步标记退出，防止退出流程被重复触发 */
-  const exitingRef = useRef(false);
-  /** Ink 提供的退出与渲染刷新工具 */
-  const { exit, waitUntilRenderFlush } = useApp();
+  /** 退出流程：isExiting 供其他组件消费，requestExit 触发退出 */
+  const { isExiting } = useExit();
   /** 聊天状态与操作 */
   const { entries, isStreaming, streamingText, streamingReasoning, sendMessage, clearChat } = useChat();
 
   useEffect(() => {
     setConfigured(hasConfig());
   }, []);
-
-  const requestExit = () => {
-    if (exitingRef.current) return;
-    exitingRef.current = true;
-    setIsExiting(true);
-  };
-
-  useInput(
-    (input, key) => {
-      if ((key.ctrl && input.toLowerCase() === "c") || input === "\u0003") {
-        requestExit();
-      }
-    },
-    { isActive: !isExiting },
-  );
-
-  useEffect(() => {
-    if (!isExiting) return;
-
-    let cancelled = false;
-    void (async () => {
-      await waitUntilRenderFlush();
-      if (!cancelled) exit();
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [exit, isExiting, waitUntilRenderFlush]);
 
   const handleCommand = (text: string): boolean => {
     const cmd = matchCommand(text);
