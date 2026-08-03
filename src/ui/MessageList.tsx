@@ -16,6 +16,7 @@ type MessageRowEntry = Pick<
 >;
 
 const ROLE_COLORS: Record<ChatEntry["role"], string | undefined> = {
+  system: undefined,
   user: "#505050",
   assistant: undefined,
   thinking: "yellow",
@@ -25,6 +26,7 @@ const ROLE_COLORS: Record<ChatEntry["role"], string | undefined> = {
 };
 
 const ROLE_BACKGROUND_COLORS: Record<ChatEntry["role"], string | undefined> = {
+  system: undefined,
   user: "#373737",
   assistant: undefined,
   thinking: undefined,
@@ -34,6 +36,7 @@ const ROLE_BACKGROUND_COLORS: Record<ChatEntry["role"], string | undefined> = {
 };
 
 const ROLE_LABELS: Record<ChatEntry["role"], string> = {
+  system: "",
   user: "You",
   assistant: "",
   thinking: "Thinking",

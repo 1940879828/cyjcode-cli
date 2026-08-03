@@ -18,7 +18,7 @@ export interface ToolResultEntry {
 
 export interface ChatEntry {
   id: string;
-  role: "user" | "assistant" | "thinking" | "tool_call" | "tool_result" | "error";
+  role: "system" | "user" | "assistant" | "thinking" | "tool_call" | "tool_result" | "error";
   content: string;
   toolCall?: ToolCallEntry;
   toolResult?: ToolResultEntry;
@@ -132,5 +132,17 @@ export function useChat() {
     clearHistory();
   };
 
-  return { entries, isStreaming, streamingText, streamingReasoning, sendMessage, clearChat };
+  const appendSystemMessage = (content: string) => {
+    append(makeEntry("system", content));
+  };
+
+  return {
+    entries,
+    isStreaming,
+    streamingText,
+    streamingReasoning,
+    sendMessage,
+    clearChat,
+    appendSystemMessage,
+  };
 }
