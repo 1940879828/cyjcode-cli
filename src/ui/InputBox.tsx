@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   Box,
   Text,
@@ -82,71 +82,58 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
       : undefined,
   );
 
-  const updateFromEditor = useCallback(
-    (action: EditorAction) => {
-      setState((previous) => {
-        const current = TextCursor.fromText(
-          previous.text,
-          inputColumns,
-          previous.cursor,
-        );
-        const next = action(current);
-        return { text: next.text, cursor: next.offset };
-      });
-    },
-    [inputColumns],
-  );
+  const updateFromEditor = (action: EditorAction) => {
+    setState((previous) => {
+      const current = TextCursor.fromText(
+        previous.text,
+        inputColumns,
+        previous.cursor,
+      );
+      const next = action(current);
+      return { text: next.text, cursor: next.offset };
+    });
+  };
 
-  const insertText = useCallback(
-    (input: string) => {
-      if (input.length === 0) return;
-      updateFromEditor((cursor) => cursor.insert(normalizeInput(input)));
-    },
-    [updateFromEditor],
-  );
+  const insertText = (input: string) => {
+    if (input.length === 0) return;
+    updateFromEditor((cursor) => cursor.insert(normalizeInput(input)));
+  };
 
-  const submit = useCallback(() => {
+  const submit = () => {
     const current = stateRef.current.text.trim();
     if (!current) return;
 
     submitRef.current(current);
     setState({ text: "", cursor: 0 });
-  }, []);
+  };
 
-  const handleCtrl = useCallback(
-    (input: string) => {
-      const actions: Record<string, EditorAction> = {
-        a: (cursor) => cursor.startOfLine(),
-        b: (cursor) => cursor.left(),
-        d: (cursor) => cursor.deleteForward(),
-        e: (cursor) => cursor.endOfLine(),
-        f: (cursor) => cursor.right(),
-        h: (cursor) => cursor.backspace(),
-        k: (cursor) => cursor.deleteToLineEnd(),
-        u: (cursor) => cursor.deleteToLineStart(),
-        w: (cursor) => cursor.deleteWordBefore(),
-      };
-      const action = actions[input.toLowerCase()];
-      if (action) updateFromEditor(action);
-    },
-    [updateFromEditor],
-  );
+  const handleCtrl = (input: string) => {
+    const actions: Record<string, EditorAction> = {
+      a: (cursor) => cursor.startOfLine(),
+      b: (cursor) => cursor.left(),
+      d: (cursor) => cursor.deleteForward(),
+      e: (cursor) => cursor.endOfLine(),
+      f: (cursor) => cursor.right(),
+      h: (cursor) => cursor.backspace(),
+      k: (cursor) => cursor.deleteToLineEnd(),
+      u: (cursor) => cursor.deleteToLineStart(),
+      w: (cursor) => cursor.deleteWordBefore(),
+    };
+    const action = actions[input.toLowerCase()];
+    if (action) updateFromEditor(action);
+  };
 
-  const handleMeta = useCallback(
-    (input: string) => {
-      const actions: Record<string, EditorAction> = {
-        b: (cursor) => cursor.prevWord(),
-        d: (cursor) => cursor.deleteWordAfter(),
-        f: (cursor) => cursor.nextWord(),
-      };
-      const action = actions[input.toLowerCase()];
-      if (action) updateFromEditor(action);
-    },
-    [updateFromEditor],
-  );
+  const handleMeta = (input: string) => {
+    const actions: Record<string, EditorAction> = {
+      b: (cursor) => cursor.prevWord(),
+      d: (cursor) => cursor.deleteWordAfter(),
+      f: (cursor) => cursor.nextWord(),
+    };
+    const action = actions[input.toLowerCase()];
+    if (action) updateFromEditor(action);
+  };
 
-  const handleInput = useCallback(
-    (input: string, key: Key) => {
+  const handleInput = (input: string, key: Key) => {
       if (key.return) {
         if (key.shift || key.meta) insertText("\n");
         else submit();
@@ -185,9 +172,7 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
       if (key.ctrl) return handleCtrl(input);
       if (key.meta) return handleMeta(input);
       if (input.length > 0) insertText(input);
-    },
-    [handleCtrl, handleMeta, insertText, submit, updateFromEditor],
-  );
+  };
 
   useInput(handleInput, { isActive });
   usePaste(insertText, { isActive });

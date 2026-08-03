@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { runAgentLoop } from "../agent/loop.js";
 import { clearHistory } from "../agent/history.js";
 import type { ToolResult } from "../tools/types.js";
@@ -47,96 +47,90 @@ export function useChat() {
   const [streamingText, setStreamingText] = useState("");
   const [streamingReasoning, setStreamingReasoning] = useState("");
 
-  const append = useCallback((entry: ChatEntry) => {
+  const append = (entry: ChatEntry) => {
     setEntries((prev) => [...prev, entry]);
-  }, []);
+  };
 
-  const consumeEvents = useCallback(
-    async (text: string) => {
-      let buffer = "";
-      let reasoning = "";
-      const recordPath = getRecordPath();
-      const mockPath = getMockPath();
-      const generator = mockPath
-        ? mockAgentLoop(text, mockPath)
-        : recordPath
-          ? recordAgentLoop(text, recordPath)
-          : runAgentLoop(text);
+  const consumeEvents = async (text: string) => {
+    let buffer = "";
+    let reasoning = "";
+    const recordPath = getRecordPath();
+    const mockPath = getMockPath();
+    const generator = mockPath
+      ? mockAgentLoop(text, mockPath)
+      : recordPath
+        ? recordAgentLoop(text, recordPath)
+        : runAgentLoop(text);
 
-      for await (const event of generator) {
-        switch (event.type) {
-          case "reasoning_delta":
-            reasoning += event.content;
-            setStreamingReasoning(reasoning);
-            break;
+    for await (const event of generator) {
+      switch (event.type) {
+        case "reasoning_delta":
+          reasoning += event.content;
+          setStreamingReasoning(reasoning);
+          break;
 
-          case "text_delta":
-            buffer += event.content;
-            setStreamingText(buffer);
-            break;
+        case "text_delta":
+          buffer += event.content;
+          setStreamingText(buffer);
+          break;
 
-          case "tool_call":
-            append(
-              makeEntry("tool_call", `调用工具: ${event.name}`, {
-                toolCall: { callId: event.callId, name: event.name, arguments: event.arguments },
-              }),
-            );
-            break;
+        case "tool_call":
+          append(
+            makeEntry("tool_call", `调用工具: ${event.name}`, {
+              toolCall: { callId: event.callId, name: event.name, arguments: event.arguments },
+            }),
+          );
+          break;
 
-          case "tool_result":
-            append(
-              makeEntry(
-                "tool_result",
-                event.result.success ? event.result.data || "成功" : `错误: ${event.result.error}`,
-                { toolResult: { callId: event.callId, name: event.name, result: event.result } },
-              ),
-            );
-            break;
+        case "tool_result":
+          append(
+            makeEntry(
+              "tool_result",
+              event.result.success ? event.result.data || "成功" : `错误: ${event.result.error}`,
+              { toolResult: { callId: event.callId, name: event.name, result: event.result } },
+            ),
+          );
+          break;
 
-          case "done":
-            setStreamingReasoning("");
-            if (reasoning) {
-              append(makeEntry("thinking", reasoning));
-            }
-            append(makeEntry("assistant", event.fullText || buffer));
-            setStreamingText("");
-            break;
+        case "done":
+          setStreamingReasoning("");
+          if (reasoning) {
+            append(makeEntry("thinking", reasoning));
+          }
+          append(makeEntry("assistant", event.fullText || buffer));
+          setStreamingText("");
+          break;
 
-          case "error":
-            append(makeEntry("error", `错误: ${event.error}`));
-            break;
-        }
+        case "error":
+          append(makeEntry("error", `错误: ${event.error}`));
+          break;
       }
-    },
-    [append],
-  );
+    }
+  };
 
-  const sendMessage = useCallback(
-    async (text: string) => {
-      if (isStreaming || !text.trim()) return;
+  const sendMessage = async (text: string) => {
+    if (isStreaming || !text.trim()) return;
 
-      append(makeEntry("user", text));
-      setIsStreaming(true);
+    append(makeEntry("user", text));
+    setIsStreaming(true);
+    setStreamingText("");
+    setStreamingReasoning("");
+
+    try {
+      await consumeEvents(text);
+    } catch (err) {
+      append(makeEntry("error", `错误: ${err instanceof Error ? err.message : String(err)}`));
+    } finally {
+      setIsStreaming(false);
       setStreamingText("");
       setStreamingReasoning("");
+    }
+  };
 
-      try {
-        await consumeEvents(text);
-      } catch (err) {
-        append(makeEntry("error", `错误: ${err instanceof Error ? err.message : String(err)}`));
-      } finally {
-        setIsStreaming(false);
-        setStreamingText("");
-        setStreamingReasoning("");
-      }
-    },
-    [isStreaming, append, consumeEvents],
-  );
-
-  const clearChat = useCallback(() => {
+  const clearChat = () => {
     setEntries([]);
     clearHistory();
-  }, []);
+  };
 
   return { entries, isStreaming, streamingText, streamingReasoning, sendMessage, clearChat };
 }

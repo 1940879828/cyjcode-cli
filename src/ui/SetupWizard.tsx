@@ -1,4 +1,4 @@
-import { useState, useCallback, useLayoutEffect, useRef } from "react";
+import { useState, useLayoutEffect, useRef } from "react";
 import { Box, Text, useCursor, useInput, usePaste, measureElement } from "ink";
 import type { CursorPosition } from "ink";
 import stringWidth from "string-width";
@@ -40,7 +40,7 @@ const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
 
   const stepIdx = STEP_ORDER.indexOf(step);
 
-  const applyStepValue = useCallback(() => {
+  const applyStepValue = () => {
     const s = stepRef.current;
     const input = inputRef.current;
     switch (s) {
@@ -69,15 +69,15 @@ const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
         return;
     }
     setInputValue("");
-  }, [onComplete]);
+  };
 
-  const appendInput = useCallback((input: string) => {
+  const appendInput = (input: string) => {
     setInputValue((prev) => prev + input);
-  }, []);
+  };
 
-  const removeLastInputCharacter = useCallback(() => {
+  const removeLastInputCharacter = () => {
     setInputValue((prev) => Array.from(prev).slice(0, -1).join(""));
-  }, []);
+  };
 
   useInput((input, key) => {
     if (stepRef.current === "confirm") {

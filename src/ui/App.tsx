@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { hasConfig, getConfig } from "../config/store.js";
 import { useChat } from "./useChat.js";
@@ -16,22 +16,28 @@ import pkg from "../../package.json" with { type: "json" };
 const COMMAND_FADE_DELAY = 10_000;
 
 const App = () => {
+  /** 配置是否就绪：null 检查中 / false 需引导 / true 已就绪 */
   const [configured, setConfigured] = useState<boolean | null>(null);
+  /** 命令输出的临时提示文本，超时后自动清除 */
   const [commandOutput, setCommandOutput] = useState<string | null>(null);
+  /** 是否正在退出，触发退出后的异步清理流程 */
   const [isExiting, setIsExiting] = useState(false);
+  /** 同步标记退出，防止退出流程被重复触发 */
   const exitingRef = useRef(false);
+  /** Ink 提供的退出与渲染刷新工具 */
   const { exit, waitUntilRenderFlush } = useApp();
+  /** 聊天状态与操作 */
   const { entries, isStreaming, streamingText, streamingReasoning, sendMessage, clearChat } = useChat();
 
   useEffect(() => {
     setConfigured(hasConfig());
   }, []);
 
-  const requestExit = useCallback(() => {
+  const requestExit = () => {
     if (exitingRef.current) return;
     exitingRef.current = true;
     setIsExiting(true);
-  }, []);
+  };
 
   useInput(
     (input, key) => {
@@ -56,41 +62,35 @@ const App = () => {
     };
   }, [exit, isExiting, waitUntilRenderFlush]);
 
-  const handleCommand = useCallback(
-    (text: string): boolean => {
-      const cmd = matchCommand(text);
-      if (!cmd) return false;
+  const handleCommand = (text: string): boolean => {
+    const cmd = matchCommand(text);
+    if (!cmd) return false;
 
-      if (cmd.name === "/clear") {
-        clearChat();
-        setCommandOutput("对话历史已清空");
-      } else {
-        setCommandOutput(cmd.handler());
-      }
-      setTimeout(() => setCommandOutput(null), COMMAND_FADE_DELAY);
-      return true;
-    },
-    [clearChat],
-  );
+    if (cmd.name === "/clear") {
+      clearChat();
+      setCommandOutput("对话历史已清空");
+    } else {
+      setCommandOutput(cmd.handler());
+    }
+    setTimeout(() => setCommandOutput(null), COMMAND_FADE_DELAY);
+    return true;
+  };
 
-  const handleSubmit = useCallback(
-    (text: string) => {
-      // 拦截所有 / 开头输入：未识别命令不给 AI，防止配置错误时触发 API 调用
-      if (text.startsWith("/")) {
-        if (text.trim() === "/setup") {
-          setConfigured(false);
-          return;
-        }
-        if (handleCommand(text)) return;
-        setCommandOutput(`未知命令: ${text}\n输入 /help 查看可用命令`);
-        setTimeout(() => setCommandOutput(null), COMMAND_FADE_DELAY);
+  const handleSubmit = (text: string) => {
+    // 拦截所有 / 开头输入：未识别命令不给 AI，防止配置错误时触发 API 调用
+    if (text.startsWith("/")) {
+      if (text.trim() === "/setup") {
+        setConfigured(false);
         return;
       }
-      setCommandOutput(null);
-      sendMessage(text);
-    },
-    [handleCommand, sendMessage],
-  );
+      if (handleCommand(text)) return;
+      setCommandOutput(`未知命令: ${text}\n输入 /help 查看可用命令`);
+      setTimeout(() => setCommandOutput(null), COMMAND_FADE_DELAY);
+      return;
+    }
+    setCommandOutput(null);
+    sendMessage(text);
+  };
 
   if (configured === null) {
     return (
