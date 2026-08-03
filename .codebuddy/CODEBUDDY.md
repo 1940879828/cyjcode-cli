@@ -58,3 +58,8 @@ src/
 - `npm run dev` - 开发模式运行（tsx 直接执行）
 - `npm run build` - 类型检查 + esbuild 打包
 - `npm run typecheck` - 仅类型检查
+
+## 提交代码时
+
+- 生成中文的commit message
+- 需要遵循之前的提交风格
