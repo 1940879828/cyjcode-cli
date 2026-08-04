@@ -56,15 +56,28 @@ const createSegmenter = (granularity: "grapheme" | "word") => {
   return new Segmenter(undefined, { granularity });
 };
 
+// 返回按“用户眼里的字符”分割的文本小切片数组
 const graphemes = (text: string): TextSegment[] =>
   Array.from(createSegmenter("grapheme").segment(text));
 
+// 返回按“用户眼里的词”分割的文本小切片数组
 const wordSegments = (text: string): TextSegment[] =>
   Array.from(createSegmenter("word").segment(text));
 
+/**
+ * 把一个数值限制在 [min, max] 区间内
+ * Math.min(value, max)封顶
+ * - 先与大的比 比max大就取小的
+ * Math.max(min, value)封底
+ * - 再与小的比 比min小就取大的
+ */
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(value, max));
 
+/**
+ * 1. 把 \r\n（CRLF，Windows 风格）替换成 \n（LF，Unix 风格）
+ * 2. 把 \r（CR，Mac 风格）替换成 \n（LF，Unix 风格）
+ */
 const normalizeNewlines = (text: string): string =>
   text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
@@ -207,6 +220,12 @@ export class TextCursor {
     return Array.from(values).sort((left, right) => left - right);
   }
 
+  /**
+   * 某个值靠近一个「刻度」时，自动被吸附到最近的刻度上
+   * 把 offset 吸附（钳制）到边界上，向下取整
+   * 
+   * 从第一个开始对比所有可用边界列表，比他小就赋值result，比他大就跳出循环然后返回最近那个小的。
+   */
   private snap(offset: number): number {
     let result = 0;
     for (const boundary of this.boundaries) {
@@ -229,6 +248,9 @@ export class TextCursor {
     return this.boundaries.find((boundary) => boundary > offset) ?? this.text.length;
   }
 
+  /**
+   * 把一整段原始文本按照终端（输入框）的屏幕宽度 columns 自动换行，拆分成一个"显示行"列表。
+   */
   private wrapText(): WrappedLine[] {
     const lines: WrappedLine[] = [];
     let lineStart = 0;
