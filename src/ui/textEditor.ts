@@ -1,8 +1,15 @@
 import stringWidth from "string-width";
 
+/**
+ * 文本小切片：从一段文本里切出来的一个小块
+ * 
+ */
 type TextSegment = {
+  // 切出来的那一小段文本内容
   segment: string;
+  // 这一小段在原始文本里的起始位置（下标）
   index: number;
+  // 这一小段是不是"像词"的内容
   isWordLike?: boolean;
 };
 
@@ -15,9 +22,22 @@ type SegmenterConstructor = new (
   options?: { granularity: "grapheme" | "word" },
 ) => SegmenterLike;
 
+/**
+ * 定义每行（在终端屏幕上显示时会占几行）的开头结尾位置和内容
+ * start 和 end 是 offset 索引，表示在原始文本 text 中的起始位置和结束位置
+ * 但 text 是经过换行处理后的文本，即 text 中的换行符被替换为 \n
+ * 
+ * lines = [
+ *   { start: 0, end: 3, text: "你wo" },  // 第 1 个 WrappedLine
+ *   { start: 3, end: 6, text: "rld" },   // 第 2 个 WrappedLine
+ * ]
+ */
 type WrappedLine = {
+  // 这一行在原始文本 text 中的起始位置（offset 索引）
   start: number;
+  // 这一行在原始文本 text 中的结束位置（offset 索引，开区间）
   end: number;
+  // 这一行要显示的内容（text.slice(start, end)）
   text: string;
 };
 
@@ -26,38 +46,21 @@ export type EditorPosition = {
   column: number;
 };
 
-const getSegmenter = (granularity: "grapheme" | "word") => {
-  const segmenter = (Intl as typeof Intl & { Segmenter?: SegmenterConstructor })
+/**
+ * 文本切分器。
+ * Node 22+ 保证存在 Intl.Segmenter，直接使用。
+ */
+const createSegmenter = (granularity: "grapheme" | "word") => {
+  const Segmenter = (Intl as typeof Intl & { Segmenter: SegmenterConstructor })
     .Segmenter;
-  return segmenter ? new segmenter(undefined, { granularity }) : undefined;
+  return new Segmenter(undefined, { granularity });
 };
 
-const fallbackGraphemes = (text: string): TextSegment[] => {
-  const result: TextSegment[] = [];
-  let index = 0;
-  for (const segment of Array.from(text)) {
-    result.push({ segment, index });
-    index += segment.length;
-  }
-  return result;
-};
+const graphemes = (text: string): TextSegment[] =>
+  Array.from(createSegmenter("grapheme").segment(text));
 
-const graphemes = (text: string): TextSegment[] => {
-  const segmenter = getSegmenter("grapheme");
-  return segmenter ? Array.from(segmenter.segment(text)) : fallbackGraphemes(text);
-};
-
-const wordSegments = (text: string): TextSegment[] => {
-  const segmenter = getSegmenter("word");
-  if (segmenter) return Array.from(segmenter.segment(text));
-
-  const matches = text.matchAll(/\S+/gu);
-  return Array.from(matches, (match) => ({
-    segment: match[0],
-    index: match.index,
-    isWordLike: true,
-  }));
-};
+const wordSegments = (text: string): TextSegment[] =>
+  Array.from(createSegmenter("word").segment(text));
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(value, max));
@@ -65,10 +68,30 @@ const clamp = (value: number, min: number, max: number): number =>
 const normalizeNewlines = (text: string): string =>
   text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
+/**
+ * 调用时机：
+ *  - 每次按键（改变内容/光标）时
+ *  - 每次渲染时 —— selectInputBoxView
+ */
 export class TextCursor {
+  /**
+   * 文本按屏幕宽度换行后的"显示行"
+   * 把文本按照 columns（终端宽度）换行之后的每一行
+   */
   private readonly lines: WrappedLine[];
+  /**
+   * 可停靠的光标位置点
+   * 升序排序的数字数组，表示光标允许停靠的所有offset位置。
+   * 数字数组表示字素的边界
+   */
   private readonly boundaries: number[];
 
+  /**
+   * 
+   * @param text 原始文本（全量）
+   * @param columns 输入框可用宽度
+   * @param offset 光标在当前原始文本 text 中的位置（字符下标，从 0 开始）。
+   */
   private constructor(
     readonly text: string,
     private readonly columns: number,
@@ -173,7 +196,9 @@ export class TextCursor {
     return new TextCursor(text, this.columns, offset);
   }
 
+  // 收集文本中所有"光标可以合法停靠"的位置，返回一个升序数组
   private createBoundaries(): number[] {
+    // 放开头和结尾
     const values = new Set([0, this.text.length]);
     for (const segment of graphemes(this.text)) {
       values.add(segment.index);
