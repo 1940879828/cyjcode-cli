@@ -1,9 +1,9 @@
 {
-  "name": "cyjcode-cli",
+  "name": "tigacode-cli",
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "cyjcode": "./dist/cli.js"
+    "tigacode": "./bin/check-node-version.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -3,6 +3,7 @@ import { render } from "ink";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import pkg from "../package.json" with { type: "json" };
+import { APP } from "./config/app.js";
 import App from "./ui/App.js";
 import LogViewer from "./ui/LogViewer.js";
 import { setRecordPath, setMockPath } from "./devmock/index.js";
@@ -30,11 +31,11 @@ function startInk(element: React.ReactElement, options: { exitOnCtrlC?: boolean 
 }
 
 yargs(hideBin(process.argv))
-  .scriptName("cyjcode")
+  .scriptName("tigacode")
   .usage("$0 [command]")
   .command(
     "$0",
-    "启动 cyjcode 聊天界面",
+    `启动 ${APP.name} 聊天界面`,
     (yargs) => {
       return yargs
         .option("record", {

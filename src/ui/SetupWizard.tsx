@@ -3,6 +3,7 @@ import { Box, Text, useCursor, useInput, usePaste, measureElement } from "ink";
 import type { CursorPosition } from "ink";
 import stringWidth from "string-width";
 import { setConfig, DEFAULT_CONFIG } from "../config/store.js";
+import { APP } from "../config/app.js";
 
 type Step = "baseUrl" | "apiKey" | "model" | "confirm";
 
@@ -103,7 +104,7 @@ const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
   return (
     <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
-        <Text color="cyan" bold>⚡ cyjcode-cli — 首次配置引导</Text>
+        <Text color="cyan" bold>⚡ {APP.name} — 首次配置引导</Text>
       </Box>
 
       <Box marginBottom={1}>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { getTodayLogPath, readLogLines, type LogEntry } from "../utils/logger.js";
+import { APP } from "../config/app.js";
 
 const MAX_VISIBLE_LOGS = 30;
 const POLL_INTERVAL = 500;
@@ -55,7 +56,7 @@ const LogViewer = () => {
   return (
     <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
-        <Text color="cyan" bold>📋 cyjcode-cli 日志查看器</Text>
+        <Text color="cyan" bold>📋 {APP.name} 日志查看器</Text>
         <Text color="gray" dimColor>{" "}— 实时监控日志流</Text>
       </Box>
 
