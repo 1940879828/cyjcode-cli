@@ -2,25 +2,9 @@ import stringWidth from "string-width";
 
 /**
  * 文本小切片：从一段文本里切出来的一个小块
- * 
+ * 由官方 SegmentData 去掉冗余的 input（调用方已有完整文本）派生而来。
  */
-type TextSegment = {
-  // 切出来的那一小段文本内容
-  segment: string;
-  // 这一小段在原始文本里的起始位置（下标）
-  index: number;
-  // 这一小段是不是"像词"的内容
-  isWordLike?: boolean;
-};
-
-type SegmenterLike = {
-  segment(input: string): Iterable<TextSegment>;
-};
-
-type SegmenterConstructor = new (
-  locales?: string | string[],
-  options?: { granularity: "grapheme" | "word" },
-) => SegmenterLike;
+type TextSegment = Omit<Intl.SegmentData, "input"> & { isWordLike?: boolean };
 
 /**
  * 定义每行（在终端屏幕上显示时会占几行）的开头结尾位置和内容
@@ -46,23 +30,13 @@ export type EditorPosition = {
   column: number;
 };
 
-/**
- * 文本切分器。
- * Node 22+ 保证存在 Intl.Segmenter，直接使用。
- */
-const createSegmenter = (granularity: "grapheme" | "word") => {
-  const Segmenter = (Intl as typeof Intl & { Segmenter: SegmenterConstructor })
-    .Segmenter;
-  return new Segmenter(undefined, { granularity });
-};
-
 // 返回按“用户眼里的字符”分割的文本小切片数组
 const graphemes = (text: string): TextSegment[] =>
-  Array.from(createSegmenter("grapheme").segment(text));
+  Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text));
 
 // 返回按“用户眼里的词”分割的文本小切片数组
 const wordSegments = (text: string): TextSegment[] =>
-  Array.from(createSegmenter("word").segment(text));
+  Array.from(new Intl.Segmenter(undefined, { granularity: "word" }).segment(text));
 
 /**
  * 把一个数值限制在 [min, max] 区间内
@@ -253,23 +227,33 @@ export class TextCursor {
    */
   private wrapText(): WrappedLine[] {
     const lines: WrappedLine[] = [];
+    // 当前行的起始下标游标指针（在原始文本中的位置）
     let lineStart = 0;
+    // 当前行已累计的显示宽度（像素意义上的列数，不是字符数）
     let lineWidth = 0;
 
+    // 循环每一个字素（Unicode 层面的最小显示单元）
     for (const part of graphemes(this.text)) {
+
       if (part.segment === "\n") {
+        // 遇到\n了，收尾成一行存入lines
         lines.push(this.makeLine(lineStart, part.index));
+        // 移动指针到末尾
         lineStart = part.index + part.segment.length;
         lineWidth = 0;
         continue;
       }
 
+      // 获取当前字符的像素宽度 example："中文" .length=2 stringWidth=4
       const width = stringWidth(part.segment);
       if (lineWidth > 0 && lineWidth + width > this.columns) {
+        // 当前行已有字符，且加上当前字符的宽度超出终端宽度，则收尾成一行存入lines
         lines.push(this.makeLine(lineStart, part.index));
         lineStart = part.index;
         lineWidth = 0;
       }
+
+      // 否则，当前字符宽度加到当前行已累计宽度上
       lineWidth += width;
     }
 
@@ -277,6 +261,13 @@ export class TextCursor {
     return lines;
   }
 
+  /**
+   * 行构造器 
+   * 给他开头坐标、结束坐标，他自己去拿用户输入的所有this.text，然后把这段文本切割出来，然后返回一个"显示行"对象
+   * @param start 起始下标（在原始文本中的位置）
+   * @param end 结束下标（在原始文本中的位置）
+   * @returns 一个"显示行"对象
+   */ 
   private makeLine(start: number, end: number): WrappedLine {
     return { start, end, text: this.text.slice(start, end) };
   }
