@@ -25,6 +25,12 @@ type WrappedLine = {
   text: string;
 };
 
+/**
+ * 定义编辑器光标位置
+ * line行 和 column列 都是从 0 开始的
+ * - column 不是「第几个字符」，而是「第几列（显示宽度）」
+ * - 「第几个字」用于对文本操作，「第几格」用于屏幕上画。
+ */
 export type EditorPosition = {
   line: number;
   column: number;
@@ -90,55 +96,103 @@ export class TextCursor {
     this.lines = this.wrapText();
   }
 
+  // 省略 offset 时，光标自动停在文本末尾（最常见的「新光标」位置）
   static fromText(text: string, columns: number, offset = text.length): TextCursor {
     return new TextCursor(text, columns, offset);
   }
 
+  // 获取光标的当前位置(横纵坐标)
   getPosition(): EditorPosition {
+    // 光标当前在第几行
     const line = this.lineForOffset(this.offset);
     return {
       line,
+      /**
+       * 把「行首到光标之间」的文本切片，量出它的显示宽度
+       * 
+       * 行首的下标this.lines[line]!.start
+       * 光标的下标this.offset
+       * 截取他们的文本，stringWidth量出它的显示宽度 就是光标应该在的横坐标
+       */
       column: stringWidth(this.text.slice(this.lines[line]!.start, this.offset)),
     };
   }
 
+  // 返回 行数据数组添加换行符
   getRenderedText(): string {
     return this.lines.map((line) => line.text).join("\n");
   }
 
+  /**
+   * 插入文本
+   * @param input 用户输入的字符
+   * @returns 返回一个新的 TextCursor 实例，表示用户输入后的光标位置
+   */
   insert(input: string): TextCursor {
+    // 统一换行符为/n
     const normalized = normalizeNewlines(input);
+    // 光标把文本切成左右两半，新文本塞进中间
     const text =
       this.text.slice(0, this.offset) + normalized + this.text.slice(this.offset);
+
+    // 返回一个新的 TextCursor 实例，表示用户输入后的光标位置
     return this.next(text, this.offset + normalized.length);
   }
 
+  /**
+   * 光标向左移动
+   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   */
   left(): TextCursor {
     return this.next(this.text, this.previousBoundary(this.offset));
   }
 
+  /**
+   * 光标向右移动
+   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   */
   right(): TextCursor {
     return this.next(this.text, this.nextBoundary(this.offset));
   }
 
+  /**
+   * 光标向上移动
+   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   */
   up(): TextCursor {
     const position = this.getPosition();
     return this.moveToPosition(position.line - 1, position.column);
   }
 
+  /**
+   * 光标向下移动
+   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   */
   down(): TextCursor {
     const position = this.getPosition();
     return this.moveToPosition(position.line + 1, position.column);
   }
 
+  /**
+   * 光标移动到行首
+   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   */
   startOfLine(): TextCursor {
     return this.next(this.text, this.lines[this.lineForOffset(this.offset)]!.start);
   }
 
+  /**
+   * 光标移动到行尾
+   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   */
   endOfLine(): TextCursor {
     return this.next(this.text, this.lines[this.lineForOffset(this.offset)]!.end);
   }
 
+  /**
+   * 光标移动到上一个单词的开头
+   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   */
   prevWord(): TextCursor {
     return this.next(this.text, this.findPreviousWordStart());
   }
@@ -179,6 +233,11 @@ export class TextCursor {
     return this.next(this.text.slice(0, this.offset) + this.text.slice(end), this.offset);
   }
 
+  /**
+   * 终点，不管什么操作，最后都汇集到next
+   * 拿着（新文本, 新光标位置）去 new 一个全新的 TextCursor 返回
+   * 
+   */
   private next(text: string, offset: number): TextCursor {
     return new TextCursor(text, this.columns, offset);
   }
@@ -209,16 +268,25 @@ export class TextCursor {
     return result;
   }
 
+  /**
+   * 
+   * @param offset 
+   * @returns 上一个光标可停靠边界
+   */
   private previousBoundary(offset: number): number {
     let result = 0;
     for (const boundary of this.boundaries) {
+       // 升序，遇到第一个不小于 offset 即越过答案
       if (boundary >= offset) break;
+      // 上一个位置就是上一个边界
       result = boundary;
     }
     return result;
   }
 
+  // 返回 offset 右侧最近的"可停靠边界"。
   private nextBoundary(offset: number): number {
+    // 找第一个严格大于 offset 的即右侧最近停靠点 没有就是末尾了返回兜底的文本末尾索引
     return this.boundaries.find((boundary) => boundary > offset) ?? this.text.length;
   }
 
@@ -257,6 +325,7 @@ export class TextCursor {
       lineWidth += width;
     }
 
+    // 最后一行收尾存入lines
     lines.push(this.makeLine(lineStart, this.text.length));
     return lines;
   }
@@ -272,21 +341,37 @@ export class TextCursor {
     return { start, end, text: this.text.slice(start, end) };
   }
 
+  /**
+   * 根据 offset（原始文本里的字符下标），反推出它落在哪一行
+   * 后续可做二分查找优化
+   * @returns 行下标
+   */
   private lineForOffset(offset: number): number {
     for (let index = this.lines.length - 1; index >= 0; index--) {
+      // 如果offset大于等于当前行的起始下标，说明在这一行，则返回当前行下标
       if (offset >= this.lines[index]!.start) return index;
     }
     return 0;
   }
 
+  /**
+   * 光标向上移动
+   * 给定目标行 + 目标列，光标应该落在原文的哪个 offset？
+   */
   private moveToPosition(line: number, column: number): TextCursor {
+    // 如果目标行超出范围，则取边界值
     const targetLine = this.lines[clamp(line, 0, this.lines.length - 1)]!;
     return this.next(this.text, this.offsetAtColumn(targetLine, column));
   }
 
+  /**
+   * 这一行里，光标停在『第 column 列』时，应该对应原文的哪个 offset？
+   * 已知这一行，已知列数，求offset
+   */
   private offsetAtColumn(line: WrappedLine, column: number): number {
     let width = 0;
     for (const part of graphemes(line.text)) {
+      // nextWidth 是当前字素的结尾列；若结尾已超过目标列，则停在这个字素的开头（= 上个字素的右边界）
       const nextWidth = width + stringWidth(part.segment);
       if (nextWidth > column) return line.start + part.index;
       width = nextWidth;
@@ -294,13 +379,17 @@ export class TextCursor {
     return line.end;
   }
 
+  /**
+   * 找「前一个词的起点」
+   * @returns 字符下标（offset）
+   */
   private findPreviousWordStart(): number {
-    let previous = 0;
+    let previous = 0;// 兜底：光标已在最前/无更早词时，停在文本起点
     for (const word of wordSegments(this.text)) {
-      if (!word.isWordLike) continue;
+      if (!word.isWordLike) continue;// 跳过非词（空格、标点等），跳词只认"词"
       const end = word.index + word.segment.length;
-      if (this.offset > word.index && this.offset <= end) return word.index;
-      if (word.index < this.offset) previous = word.index;
+      if (this.offset > word.index && this.offset <= end) return word.index;// 光标在本词内：跳到本词词首
+      if (word.index < this.offset) previous = word.index;// 本词整体在光标左边：暂记为更早候选
     }
     return previous;
   }
