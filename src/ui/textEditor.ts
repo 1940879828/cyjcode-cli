@@ -3,6 +3,13 @@ import stringWidth from "string-width";
 /**
  * 文本小切片：从一段文本里切出来的一个小块
  * 由官方 SegmentData 去掉冗余的 input（调用方已有完整文本）派生而来。
+ * 
+ * type TextSegment = {
+ *   segment: string;        // 这一小段切出来的文本内容
+ *   index: number;          // 这一小段在原始文本里的起始下标（offset）
+ *   isWordLike: boolean;    // 这一小段是不是"像词"的内容（grapheme 模式下恒为 false）
+ *   // input: string        // 已被 Omit 掉，不在类型里
+ * }
  */
 type TextSegment = Omit<Intl.SegmentData, "input"> & { isWordLike?: boolean };
 
@@ -197,34 +204,68 @@ export class TextCursor {
     return this.next(this.text, this.findPreviousWordStart());
   }
 
+  /**
+   * 光标移动到下一个单词的开头
+   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   */
   nextWord(): TextCursor {
     return this.next(this.text, this.findNextWordStart());
   }
 
+  /**
+   * 光标向左删除一个字符
+   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   */
   backspace(): TextCursor {
+    // 在开头就不删除 返回当前这个TextCursor实例
     if (this.offset === 0) return this;
+    // 定位上一个光标可以停靠的位置
     const start = this.previousBoundary(this.offset);
+    // [0, start) 前一个光标可停靠位置的左边 然后 [start, this.offset) 光标右边 丢掉了中间那个字符
     return this.next(this.text.slice(0, start) + this.text.slice(this.offset), start);
   }
 
+  /**
+   * 光标向右删除一个字符
+   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   */
   deleteForward(): TextCursor {
+    // 在结尾就不删除 返回当前这个TextCursor实例
     if (this.offset >= this.text.length) return this;
+    // 定位下一个光标可以停靠的位置
     const end = this.nextBoundary(this.offset);
+    // [0, this.offset) 光标左边 然后 [end, this.text.length) 下一个停靠点的右边 丢掉了中间那个字符
     return this.next(this.text.slice(0, this.offset) + this.text.slice(end), this.offset);
   }
 
+  /**
+   * 光标向左删除一个单词
+   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   */
   deleteWordBefore(): TextCursor {
+    // 找「前一个词的起点」
     const start = this.findPreviousWordStart();
+    // [0, start) 前一个词的左边 然后 [start, this.offset) 光标右边 丢掉了中间那个单词
     return this.next(this.text.slice(0, start) + this.text.slice(this.offset), start);
   }
 
+  /**
+   * 光标向右删除一个单词
+   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   */
   deleteWordAfter(): TextCursor {
     const end = this.findNextWordEnd();
     return this.next(this.text.slice(0, this.offset) + this.text.slice(end), this.offset);
   }
 
+  /**
+   * 光标向左删除到行首
+   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   */
   deleteToLineStart(): TextCursor {
+    // 根据 offset（原始文本里的字符下标），反推出它落在哪一行，拿到行起点的坐标
     const start = this.lines[this.lineForOffset(this.offset)]!.start;
+    // 丢掉中间的部分
     return this.next(this.text.slice(0, start) + this.text.slice(this.offset), start);
   }
 
@@ -394,16 +435,28 @@ export class TextCursor {
     return previous;
   }
 
+  /**
+   * 找「后一个词的起点」
+   * @returns 
+   */
   private findNextWordStart(): number {
     for (const word of wordSegments(this.text)) {
+      // 遍历所以词，如果这个词在光标右边，则返回这个词的起点
       if (word.isWordLike && word.index > this.offset) return word.index;
     }
+    // 兜底循环完都没找到，说明光标在最后/无更晚词时，停在文本末尾
     return this.text.length;
   }
 
+  /**
+   * 找「后一个词的终点」
+   * @returns 
+   */
   private findNextWordEnd(): number {
     for (const word of wordSegments(this.text)) {
+      // 当前词结束位置的下标 开头位置+词长度
       const end = word.index + word.segment.length;
+      // 结束下标大于当前光标位置，则返回这个词的结束位置下标
       if (word.isWordLike && end > this.offset) return end;
     }
     return this.text.length;
