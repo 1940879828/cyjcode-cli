@@ -234,52 +234,84 @@ export function reduceInputBoxState(
         ? unchanged(state)
         // 否则 → 构造光标，执行 insert，生成新状态
         : updateCursor(state, layout, (cursor) => cursor.insert(event.text));
+    // 移动光标
     case "moveCursor":
+      // moveCursorBy 把 CursorMovement 分发到 TextCursor 的移动方法
       return updateCursor(state, layout, (cursor) =>
         moveCursorBy(cursor, event.movement),
       );
+    // 删除文本
     case "deleteText":
       return updateCursor(state, layout, (cursor) =>
+        // deleteFromCursor 把 TextDeletion 分发到 TextCursor 的删除方法
         deleteFromCursor(cursor, event.deletion),
       );
-    case "submit":
+    // 提交
+    case "submit": 
+      // submitState：trim 非空则清空状态 + 产出 submit 副作用；为空则不变
       return submitState(state);
+    // 重置
     case "reset":
+      // 直接回到初始状态，无副作用
       return { state: createInputBoxState(), effects: [] };
+    //  忽略 什么都不做，返回原状态
     case "ignore":
       return unchanged(state);
   }
 }
 
+/**
+ * 视图选择器
+ * 基于现在的状态，渲染出来的文本是什么、光标要放在哪里？
+ * @param state 
+ * @param layout 
+ * @returns 
+ */
 export function selectInputBoxView(
   state: InputBoxState,
   layout: InputBoxLayout,
 ): InputBoxView {
+  // 获取TextCursor实例
   const cursor = createCursor(state, layout);
   return {
+    // 渲染出来的文本是什么
     renderedText: cursor.getRenderedText(),
+    // 光标要放在哪里
     cursorPosition: cursor.getPosition(),
   };
 }
 
+// 构建TextCursor实例
 const createCursor = (state: InputBoxState, layout: InputBoxLayout): TextCursor =>
   TextCursor.fromText(state.editor.text, layout.inputColumns, state.editor.cursor);
 
+// 这次事件处理前后状态没有任何变化
 const unchanged = (state: InputBoxState): InputBoxReduction => ({
   state,
   effects: [],
 });
 
+/**
+ * 通用光标操作封装
+ * 构造光标 → 应用操作 → 写回状态
+ * 对光标执行任意一种操作（插入/移动/删除），然后产出新的 InputBoxReduction
+ * @param state 
+ * @param layout 
+ * @param update 
+ * @returns 
+ */
 const updateCursor = (
   state: InputBoxState,
   layout: InputBoxLayout,
   update: (cursor: TextCursor) => TextCursor,
 ): InputBoxReduction => withEditor(state, update(createCursor(state, layout)));
 
+// 负责"把结果写回状态"
 const withEditor = (
   state: InputBoxState,
   cursor: TextCursor,
 ): InputBoxReduction => ({
+  // 从 TextCursor 里取出 text 和 offset，生成新状态，副作用为空。
   state: {
     ...state,
     editor: {
@@ -290,16 +322,24 @@ const withEditor = (
   effects: [],
 });
 
+
 const submitState = (state: InputBoxState): InputBoxReduction => {
   const text = state.editor.text.trim();
+  // 用户没输入内容 忽略
   if (!text) return unchanged(state);
-
+  // 用户输入了内容 清空状态 + 产出 submit 副作用
   return {
     state: createInputBoxState(),
     effects: [{ type: "submit", text }],
   };
 };
 
+/**
+ * 把 CursorMovement（光标移动枚举）"翻译"成 TextCursor 的具体移动方法调用
+ * @param cursor 当前光标
+ * @param movement 要做的移动动作
+ * @returns 
+ */
 const moveCursorBy = (
   cursor: TextCursor,
   movement: CursorMovement,
@@ -324,6 +364,7 @@ const moveCursorBy = (
   }
 };
 
+// 把 TextDeletion（文本删除枚举）"翻译"成 TextCursor 的具体删除方法调用
 const deleteFromCursor = (
   cursor: TextCursor,
   deletion: TextDeletion,
