@@ -168,7 +168,7 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
       <Box
         width={screenWidth - 1}
         borderStyle="single"
-        borderTop={false}
+        borderTop={true}
         borderBottom={true}
         borderLeft={false}
         borderRight={false}
