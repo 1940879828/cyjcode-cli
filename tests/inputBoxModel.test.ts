@@ -5,13 +5,13 @@ import {
   reduceInputBoxState,
   resolveInputBoxEvent,
   selectInputBoxView,
-} from "../src/ui/inputBoxModel.js";
+} from "../src/ui/components/InputBox/inputBoxModel.js";
 import type {
   InputBoxEvent,
   InputKeyLike,
   InputBoxLayout,
   InputBoxState,
-} from "../src/ui/inputBoxModel.js";
+} from "../src/ui/components/InputBox/inputBoxModel.js";
 
 const defaultLayout: InputBoxLayout = { inputColumns: 80 };
 

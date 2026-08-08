@@ -4,7 +4,7 @@ import { hasConfig, getConfig } from "../config/store.js";
 import { useChat } from "./useChat.js";
 import { useExit } from "./useExit.js";
 import MessageList from "./MessageList.js";
-import InputBox from "./InputBox.js";
+import InputBox from "./components/InputBox/InputBox.js";
 import { parseSlashInput } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
 import Header from "./components/Header.js";
