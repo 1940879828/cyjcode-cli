@@ -24,9 +24,10 @@ import type {
   InputBoxState,
 } from "./inputBoxModel.js";
 
+// 输入框提示符
 const PROMPT = "❯ ";
+// 输入框提示符的宽度（以"column"为单位）
 const PROMPT_WIDTH = stringWidth(PROMPT);
-const FALLBACK_SCREEN_WIDTH = 80;
 
 interface Props {
   onSubmit: (text: string) => void;
@@ -38,9 +39,9 @@ interface InputBoxEffectHandlers {
   onSubmit: (text: string) => void;
 }
 
-// 获取当前终端的宽度（以"列数"为单位）
-const getScreenWidth = (columns: number | undefined): number =>
-  columns ?? process.stdout.columns ?? FALLBACK_SCREEN_WIDTH;
+// 获取当前终端的宽度（以"列数"为单位），取不到则返回 null
+const getScreenWidth = (columns: number | undefined): number | null =>
+  columns ?? process.stdout.columns ?? null;
 
 // 输入框实际可用的宽度（列数）
 const getInputColumns = (screenWidth: number): number =>
@@ -55,8 +56,8 @@ const getLayoutRoot = (node: DOMElement): DOMElement => {
 const measureCursorOrigin = (node: DOMElement, rows: number): CursorPosition => {
   const metrics = measureElement(node);
   const rootMetrics = measureElement(getLayoutRoot(node));
-  // Ink omits the trailing newline in fullscreen output, but useCursor still
-  // positions from the post-output row. Nudge y only for that render path.
+  // Ink 在全屏输出时会省略末尾换行符，但 useCursor 仍然从输出后的行开始定位。
+  // 仅在该渲染路径下将 y 坐标向下偏移一行。
   const fullscreenOffset =
     process.stdout.isTTY && rootMetrics.height >= rows ? 1 : 0;
   return { x: metrics.x, y: metrics.y + fullscreenOffset };
@@ -119,6 +120,9 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
   onSubmitRef.current = onSubmit;
 
   const screenWidth = getScreenWidth(columns);
+  // 取不到宽度 后续的输入框没有意义
+  if (screenWidth === null) return null;
+
   const inputColumns = getInputColumns(screenWidth);
   const layout = { inputColumns };
   const isActive = !disabled && !isExiting;
