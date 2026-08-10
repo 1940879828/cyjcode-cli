@@ -1,15 +1,6 @@
-import { useLayoutEffect, useRef, useState } from "react";
-import type { RefObject } from "react";
-import {
-  Box,
-  Text,
-  measureElement,
-  useCursor,
-  useInput,
-  usePaste,
-  useWindowSize,
-} from "ink";
-import type { CursorPosition, DOMElement, Key } from "ink";
+import { useRef, useState } from "react";
+import { Box, Text, useInput, usePaste, useWindowSize } from "ink";
+import type { Key } from "ink";
 import stringWidth from "string-width";
 import {
   createInputBoxState,
@@ -20,7 +11,6 @@ import {
 import type {
   InputBoxEffect,
   InputBoxEvent,
-  InputBoxView,
   InputBoxState,
 } from "./inputBoxModel.js";
 
@@ -30,11 +20,15 @@ const PROMPT = "❯ ";
 const PROMPT_WIDTH = stringWidth(PROMPT);
 
 interface Props {
+  // 提交回调 上层拿到这段文本去发起 AI 请求
   onSubmit: (text: string) => void;
+  // 为 true 时输入框不可输入
   disabled: boolean;
+  // true 表示 App 正在退出 : isActive 变 false 隐藏光标
   isExiting?: boolean;
 }
 
+// 副作用 handler
 interface InputBoxEffectHandlers {
   onSubmit: (text: string) => void;
 }
@@ -47,27 +41,6 @@ const getScreenWidth = (columns: number | undefined): number | null =>
 const getInputColumns = (screenWidth: number): number =>
   Math.max(1, screenWidth - PROMPT_WIDTH - 1);
 
-const getLayoutRoot = (node: DOMElement): DOMElement => {
-  let current = node;
-  while (current.parentNode) current = current.parentNode;
-  return current;
-};
-
-const measureCursorOrigin = (node: DOMElement, rows: number): CursorPosition => {
-  const metrics = measureElement(node);
-  const rootMetrics = measureElement(getLayoutRoot(node));
-  // Ink 在全屏输出时会省略末尾换行符，但 useCursor 仍然从输出后的行开始定位。
-  // 仅在该渲染路径下将 y 坐标向下偏移一行。
-  const fullscreenOffset =
-    process.stdout.isTTY && rootMetrics.height >= rows ? 1 : 0;
-  return { x: metrics.x, y: metrics.y + fullscreenOffset };
-};
-
-const samePosition = (
-  left: CursorPosition | null,
-  right: CursorPosition,
-): boolean => left?.x === right.x && left.y === right.y;
-
 const runInputBoxEffect = (
   effect: InputBoxEffect,
   handlers: InputBoxEffectHandlers,
@@ -75,47 +48,12 @@ const runInputBoxEffect = (
   if (effect.type === "submit") handlers.onSubmit(effect.text);
 };
 
-const useTerminalCursor = ({
-  isActive,
-  inputRef,
-  position,
-  rows,
-}: {
-  isActive: boolean;
-  inputRef: RefObject<DOMElement | null>;
-  position: InputBoxView["cursorPosition"];
-  rows: number;
-}) => {
-  const [origin, setOrigin] = useState<CursorPosition | null>(null);
-  const { setCursorPosition } = useCursor();
-
-  useLayoutEffect(() => {
-    if (!isActive || !inputRef.current) {
-      setOrigin((previous) => (previous === null ? previous : null));
-      return;
-    }
-
-    const next = measureCursorOrigin(inputRef.current, rows);
-    setOrigin((previous) => (samePosition(previous, next) ? previous : next));
-  });
-
-  setCursorPosition(
-    isActive && origin
-      ? {
-          x: origin.x + position.column,
-          y: origin.y + position.line,
-        }
-      : undefined,
-  );
-};
-
 const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
   const [inputState, setInputState] = useState<InputBoxState>(() =>
     createInputBoxState(),
   );
-  const inputTextRef = useRef<DOMElement | null>(null);
   const onSubmitRef = useRef(onSubmit);
-  const { columns, rows } = useWindowSize();
+  const { columns } = useWindowSize();
 
   onSubmitRef.current = onSubmit;
 
@@ -126,14 +64,8 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
   const inputColumns = getInputColumns(screenWidth);
   const layout = { inputColumns };
   const isActive = !disabled && !isExiting;
-  const view = selectInputBoxView(inputState, layout);
-
-  useTerminalCursor({
-    isActive,
-    inputRef: inputTextRef,
-    position: view.cursorPosition,
-    rows,
-  });
+  // 反色字符渲染：光标以反色字符内嵌进文本，由 Ink 的 diff 机制移动
+  const view = selectInputBoxView(inputState, layout, isActive);
 
   const dispatchInputEvent = (event: InputBoxEvent) => {
     setInputState((previous) => {
@@ -181,7 +113,7 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
         <Text bold color="#cccccc">
           {PROMPT}
         </Text>
-        <Box ref={inputTextRef} width={inputColumns} flexShrink={1}>
+        <Box width={inputColumns} flexShrink={1}>
           <Text color={inputColor}>{renderedText}</Text>
         </Box>
       </Box>

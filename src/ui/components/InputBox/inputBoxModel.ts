@@ -1,5 +1,4 @@
 import { TextCursor } from "./textEditor.js";
-import type { EditorPosition } from "./textEditor.js";
 
 // 编辑器本身的核心状态
 export interface InputBoxEditorState {
@@ -18,6 +17,8 @@ export interface InputBoxState {
 export interface InputBoxLayout {
   // 输入框在当前终端环境下有多少可用宽度
   inputColumns: number;
+  // 输入框最多显示的可见行数（>0 时生效，超出部分通过视口滚动）；不传/<=0 表示不限制
+  maxVisibleLines?: number;
 }
 
 /**
@@ -119,10 +120,8 @@ export interface InputBoxReduction {
 
 // 输入框的渲染视图
 export interface InputBoxView {
-  // 要显示在屏幕上的文本（已按终端宽度换行处理）
+  // 要显示在屏幕上的文本（已按终端宽度换行处理，光标以反色字符内嵌）
   renderedText: string;
-  // 光标要画的位置（行 + 列坐标）
-  cursorPosition: EditorPosition;
 }
 
 // 创建一个 "ignore" 类型的 InputBoxEvent
@@ -267,17 +266,22 @@ export function reduceInputBoxState(
  * @param layout 
  * @returns 
  */
+// 光标色块的前景色：24 位真彩色，与 Header 里 " Code" 的 TIMER_BLUE (#55A8E8) 一致。
+// \x1b[38;2;R;G;Bm 设置 RGB 前景色，配合反色显示为同色背景块。
+const CURSOR_FG_BLUE = "\u001B[38;2;85;168;232m";
+
 export function selectInputBoxView(
   state: InputBoxState,
   layout: InputBoxLayout,
+  showCursor = false,
 ): InputBoxView {
   // 获取TextCursor实例
   const cursor = createCursor(state, layout);
   return {
-    // 渲染出来的文本是什么
-    renderedText: cursor.getRenderedText(),
-    // 光标要放在哪里
-    cursorPosition: cursor.getPosition(),
+    // 渲染出来的文本是什么；showCursor 时把光标以蓝色反色字符内嵌进文本
+    renderedText: showCursor
+      ? cursor.renderWithCursor(" ", CURSOR_FG_BLUE, layout.maxVisibleLines)
+      : cursor.getRenderedText(layout.maxVisibleLines),
   };
 }
 
