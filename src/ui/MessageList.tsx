@@ -1,19 +1,35 @@
-import { Box, Text } from "ink";
+import { Box, Static, Text } from "ink";
 import type { ChatEntry } from "./useChat.js";
+import Header from "./components/Header.js";
 
 const MAX_VISIBLE_MESSAGES = 20;
 
 interface Props {
   entries: ChatEntry[];
-  streamingText: string;
-  streamingReasoning: string;
-  isStreaming: boolean;
+  version: string;
+  model: string;
+  thinking: boolean;
+  reasoningEffort: string;
 }
 
-type MessageRowEntry = Pick<
+export type MessageRowEntry = Pick<
   ChatEntry,
   "role" | "content" | "toolCall" | "toolResult"
 >;
+
+// Ink 只支持单个 <Static>，且 items 只追加不变。
+// 因此把"顶部 Header + 历史消息"合并成一个静态流：Header 是首项，历史消息随后追加。
+// 这样 Header 与已完成历史都只渲染一次，不再参与实时区的整树重绘，输入框增长走增量渲染。
+type StaticEntry =
+  | {
+      kind: "header";
+      id: "header";
+      version: string;
+      model: string;
+      thinking: boolean;
+      reasoningEffort: string;
+    }
+  | { kind: "message"; id: string; entry: MessageRowEntry };
 
 const ROLE_COLORS: Record<ChatEntry["role"], string | undefined> = {
   system: undefined,
@@ -45,31 +61,46 @@ const ROLE_LABELS: Record<ChatEntry["role"], string> = {
   error: "Error",
 };
 
-const MessageList = ({ entries, streamingText, streamingReasoning, isStreaming }: Props) => {
+const MessageList = ({ entries, version, model, thinking, reasoningEffort }: Props) => {
   const visible = entries.length > MAX_VISIBLE_MESSAGES
     ? entries.slice(-MAX_VISIBLE_MESSAGES)
     : entries;
 
+  // Header 固定为首项，历史消息随 entries 追加
+  const staticItems: StaticEntry[] = [
+    {
+      kind: "header",
+      id: "header",
+      version,
+      model,
+      thinking,
+      reasoningEffort,
+    },
+    ...visible.map(
+      (entry): StaticEntry => ({ kind: "message", id: entry.id, entry }),
+    ),
+  ];
+
   return (
-    <Box flexDirection="column">
-      {visible.map((entry) => (
-        <MessageRow key={entry.id} entry={entry} />
-      ))}
-
-      {isStreaming && streamingReasoning && (
-        <MessageRow
-          entry={{ role: "thinking", content: streamingReasoning }}
-        />
-      )}
-
-      {isStreaming && streamingText && (
-        <MessageRow entry={{ role: "assistant", content: streamingText }} />
-      )}
-    </Box>
+    <Static items={staticItems}>
+      {(item) =>
+        item.kind === "header" ? (
+          <Header
+            key={item.id}
+            version={item.version}
+            model={item.model}
+            thinking={item.thinking}
+            reasoningEffort={item.reasoningEffort}
+          />
+        ) : (
+          <MessageRow key={item.id} entry={item.entry} />
+        )
+      }
+    </Static>
   );
 };
 
-const MessageRow = ({ entry }: { entry: MessageRowEntry }) => (
+export const MessageRow = ({ entry }: { entry: MessageRowEntry }) => (
   <Box backgroundColor={ROLE_BACKGROUND_COLORS[entry.role]}>
     <Text
       color={ROLE_COLORS[entry.role]}

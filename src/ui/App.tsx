@@ -3,11 +3,10 @@ import { Box, Text } from "ink";
 import { hasConfig, getConfig } from "../config/store.js";
 import { useChat } from "./useChat.js";
 import { useExit } from "./useExit.js";
-import MessageList from "./MessageList.js";
+import MessageList, { MessageRow } from "./MessageList.js";
 import InputBox from "./components/InputBox/InputBox.js";
 import { parseSlashInput } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
-import Header from "./components/Header.js";
 import pkg from "../../package.json" with { type: "json" };
 
 const App = () => {
@@ -64,17 +63,21 @@ const App = () => {
 
   return (
     <Box flexDirection="column">
-      <Header
+      {/* Header + 历史消息统一放进 <Static>：只渲染一次，之后增量追加，不参与实时区整树重绘 */}
+      <MessageList
+        entries={entries}
         version={pkg.version}
         model={config.model}
         thinking={config.thinking}
         reasoningEffort={config.reasoningEffort}
       />
 
-      {entries.length > 0 && (
-        <Box paddingX={1}>
-          <MessageList entries={entries} streamingText={streamingText} streamingReasoning={streamingReasoning} isStreaming={isStreaming} />
-        </Box>
+      {/* 实时区：流式中持续变化的内容 + 输入框 + 帮助栏 */}
+      {isStreaming && streamingReasoning && (
+        <MessageRow entry={{ role: "thinking", content: streamingReasoning }} />
+      )}
+      {isStreaming && streamingText && (
+        <MessageRow entry={{ role: "assistant", content: streamingText }} />
       )}
 
       <InputBox onSubmit={handleSubmit} disabled={isStreaming} isExiting={isExiting} />
