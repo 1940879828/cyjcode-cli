@@ -48,7 +48,6 @@ test("inserts text and normalizes pasted newlines", () => {
     cursor: "hello\nworld".length,
   });
 });
-
 test("submit trims text, emits an effect, and resets the editor", () => {
   const state = applyEvents([{ type: "insertText", text: "  hello  " }]);
   const result = applyEvent(state, { type: "submit" });
@@ -197,27 +196,5 @@ test("renders wrapped text, with the cursor as a reversed char when shown", () =
   assert.equal(
     selectInputBoxView(state, layout, true).renderedText,
     "abcd\n ef\u001B[38;2;85;168;232m\u001B[7m \u001B[27m\u001B[39m",
-  );
-});
-
-test("limits visible lines via viewport, keeping cursor line in view", () => {
-  // 每行 2 格 → "abcdefghij" 换行成 5 行：ab / cd / ef / gh / ij
-  const layout: InputBoxLayout = { inputColumns: 2, maxVisibleLines: 2 };
-  const state = applyEvents([{ type: "insertText", text: "abcdefghij" }], layout);
-
-  // 光标在末尾 line=4，视口起始行 = min(4-1, 5-2) = 3 → 渲染 gh / ij
-  assert.equal(
-    selectInputBoxView(state, layout, true).renderedText,
-    "gh\nij\u001B[38;2;85;168;232m\u001B[7m \u001B[27m\u001B[39m",
-  );
-
-  // 不显示光标时同样受限：只渲染视口内的行
-  assert.equal(selectInputBoxView(state, layout).renderedText, "gh\nij");
-
-  // 光标在开头 line=0，视口回到顶部；光标落在行首字符 a 上被反色
-  const topState: InputBoxState = { editor: { text: "abcdefghij", cursor: 0 } };
-  assert.equal(
-    selectInputBoxView(topState, layout, true).renderedText,
-    "\u001B[38;2;85;168;232m\u001B[7ma\u001B[27m\u001B[39mb\ncd",
   );
 });

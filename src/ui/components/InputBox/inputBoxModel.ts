@@ -17,8 +17,6 @@ export interface InputBoxState {
 export interface InputBoxLayout {
   // 输入框在当前终端环境下有多少可用宽度
   inputColumns: number;
-  // 输入框最多显示的可见行数（>0 时生效，超出部分通过视口滚动）；不传/<=0 表示不限制
-  maxVisibleLines?: number;
 }
 
 /**
@@ -280,8 +278,8 @@ export function selectInputBoxView(
   return {
     // 渲染出来的文本是什么；showCursor 时把光标以蓝色反色字符内嵌进文本
     renderedText: showCursor
-      ? cursor.renderWithCursor(" ", CURSOR_FG_BLUE, layout.maxVisibleLines)
-      : cursor.getRenderedText(layout.maxVisibleLines),
+      ? cursor.renderWithCursor(" ", CURSOR_FG_BLUE)
+      : cursor.getRenderedText(),
   };
 }
 

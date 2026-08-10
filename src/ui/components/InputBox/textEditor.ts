@@ -135,29 +135,9 @@ export class TextCursor {
     };
   }
 
-  // 返回 行数据数组添加换行符；maxVisibleLines 限制时只返回视口内的行
-  getRenderedText(maxVisibleLines?: number): string {
-    const startLine = this.getViewportStartLine(maxVisibleLines);
-    const visibleLines = maxVisibleLines && maxVisibleLines > 0
-      ? this.lines.slice(startLine, startLine + maxVisibleLines)
-      : this.lines;
-    return visibleLines.map((line) => line.text).join("\n");
-  }
-
-  /**
-   * 视口起始行：让光标在最多 maxVisibleLines 行的可见区里尽量居中滚动。
-   * 内容行数不超过最大可见行时不滚动（从第 0 行开始）。
-   * @param maxVisibleLines 输入框最多显示的行数；不传/<=0 时视为不限制
-   */
-  getViewportStartLine(maxVisibleLines?: number): number {
-    if (maxVisibleLines === undefined || maxVisibleLines <= 0) return 0;
-    if (this.lines.length <= maxVisibleLines) return 0;
-    const { line } = this.getPosition();
-    const half = Math.floor(maxVisibleLines / 2);
-    // 让光标所在行尽量靠近视口中部
-    const startLine = Math.max(0, line - half);
-    // 视口不能超出文本末尾
-    return Math.min(startLine, this.lines.length - maxVisibleLines);
+  // 返回 行数据数组添加换行符
+  getRenderedText(): string {
+    return this.lines.map((line) => line.text).join("\n");
   }
 
   /**
@@ -165,20 +145,14 @@ export class TextCursor {
    * 与物理光标不同，这里光标是"文本里一个被反色的字符"，靠 Ink 的 diff 渲染移动
    * @param cursorChar 光标停在行尾/空行时用于代表光标的反色字符
    * @param fgCode 前景色 ANSI 码，色块以该颜色的反色呈现；不传则用默认反色
-   * @param maxVisibleLines 最多显示的可见行数；不传/<=0 时显示全部行
    * @returns 每行已换行、光标所在位置被反色的渲染文本
    */
-  renderWithCursor(cursorChar = " ", fgCode = "", maxVisibleLines?: number): string {
+  renderWithCursor(cursorChar = " ", fgCode = ""): string {
     const { line, column } = this.getPosition();
-    const startLine = this.getViewportStartLine(maxVisibleLines);
-    // 渲染视口内的行；行号需换算成相对视口的行号，否则光标标记会定位错行
-    const visibleLines = maxVisibleLines && maxVisibleLines > 0
-      ? this.lines.slice(startLine, startLine + maxVisibleLines)
-      : this.lines;
-    return visibleLines
+    return this.lines
       .map((wrapped, index) => {
         // 非光标所在行：保持原样（去掉行尾空格）
-        if (startLine + index !== line) return wrapped.text.trimEnd();
+        if (index !== line) return wrapped.text.trimEnd();
         // 光标所在行：遍历字素累加宽度，定位光标落在哪个字符上
         let width = 0;
         let charIndex = 0;
