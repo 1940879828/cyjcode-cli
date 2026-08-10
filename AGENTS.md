@@ -13,7 +13,7 @@
 - `src/tools/`：提供给 Agent 使用的文件读写、搜索、重命名和目录浏览工具。
 - `src/config/`：本地配置存储。
 - `src/devmock/`：开发录制与 mock 回放，不参与生产构建。
-- `src/ui/`：其中 `inputBoxModel.ts` 为输入框纯函数核心（reducer + 视图选择器），`InputBox.tsx` 只做装配、按键翻译与副作用消费，`textEditor.ts` 提供 `TextCursor` 纯计算原语。
+- `src/ui/`：其中 `inputBoxModel.ts` 为输入框纯函数核心（command 翻译 + reducer + 视图选择器），`InputBox.tsx` 只做装配、命令分发与提交回调消费，`textEditor.ts` 提供 `TextCursor` 纯计算原语。
 - `tests/`：单元/集成测试，如 `tests/inputBoxModel.test.ts`（输入框核心逻辑）。
 - `docs/`：需求、迭代计划和运维文档。
 - `.babel-out/`、`dist/`：构建产物，不要手工修改，也不要提交。
@@ -53,8 +53,8 @@
 
 输入框为「纯函数核心 + 精简 UI」分层，状态与 React 解耦：
 
-- 状态单一来源为 `InputBoxState`；按键经 `resolveInputBoxEvent` 翻译成 `InputBoxEvent`，再由 `reduceInputBoxState` 产出 `{ state, effects }`。
-- 副作用（提交等）以 `effects` 数组返回，由 UI 层消费，reducer 保持纯函数。
+- 状态单一来源为 `InputBoxState`；按键经 `resolveInputBoxCommand` 翻译成 `InputBoxCommand`，编辑命令再由 `reduceInputBoxState` 产出新状态。
+- 提交规则由 `getSubmittableText` 纯函数判断；提交回调只在 UI 层的 submit 命令分支触发，reducer 不产出副作用。
 - 视图由 `selectInputBoxView` 独立推导；新增功能（历史、下拉框）只在 `inputBoxModel.ts` 加状态与分支，UI 几乎不动。
 - 该核心逻辑须有单元测试，改动后运行 `npm run test:inputbox`。
 

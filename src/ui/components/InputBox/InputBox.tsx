@@ -4,12 +4,13 @@ import type { Key } from "ink";
 import stringWidth from "string-width";
 import {
   createInputBoxState,
+  getSubmittableText,
   reduceInputBoxState,
-  resolveInputBoxEvent,
+  resolveInputBoxCommand,
   selectInputBoxView,
 } from "./inputBoxModel.js";
 import type {
-  InputBoxEffect,
+  InputBoxCommand,
   InputBoxEvent,
   InputBoxState,
 } from "./inputBoxModel.js";
@@ -28,11 +29,6 @@ interface Props {
   isExiting?: boolean;
 }
 
-// 副作用 handler
-interface InputBoxEffectHandlers {
-  onSubmit: (text: string) => void;
-}
-
 // 获取当前终端的宽度（以"列数"为单位），取不到则返回 null
 const getScreenWidth = (columns: number | undefined): number | null =>
   columns ?? process.stdout.columns ?? null;
@@ -40,20 +36,6 @@ const getScreenWidth = (columns: number | undefined): number | null =>
 // 输入框实际可用的宽度（列数）
 const getInputColumns = (screenWidth: number): number =>
   Math.max(1, screenWidth - PROMPT_WIDTH - 1);
-
-/**
- * 副作用执行器：将 reducer 产出的副作用描述兑现为真实操作
- * - （纯函数核心不碰 I/O，副作用统一在此消费）
- * @param effect
- * @param handlers
- */
-const runInputBoxEffect = (
-  effect: InputBoxEffect,
-  handlers: InputBoxEffectHandlers,
-) => {
-  // 提交输入框内容，交由上层发起 AI 请求
-  if (effect.type === "submit") handlers.onSubmit(effect.text);
-};
 
 const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
   /**
@@ -63,9 +45,9 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
   const [inputState, setInputState] = useState<InputBoxState>(() =>
     createInputBoxState(),
   );
+  const inputStateRef = useRef(inputState);
   /**
-   * 缓存最新的 onSubmit 引用，供 setState 的 updater 中异步消费副作用时读取，
-   * 避免闭包捕获过期回调
+   * 缓存最新的 onSubmit 引用，供用户事件回调消费，避免闭包捕获过期回调
    */
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
@@ -93,37 +75,57 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
   const view = selectInputBoxView(inputState, layout, isActive);
 
   /**
-   * 输入框的事件分发器
-   * @param event 已翻译好的用户动作
+   * 提交输入框状态快照：让事件回调能同步读到最新编辑态，同时交给 React 重渲染。
+   */
+  const commitInputState = (nextState: InputBoxState) => {
+    if (nextState === inputStateRef.current) return;
+    inputStateRef.current = nextState;
+    setInputState(nextState);
+  };
+
+  /**
+   * 输入框的编辑事件分发器
+   * @param event 已翻译好的编辑动作
    */
   const dispatchInputEvent = (event: InputBoxEvent) => {
-    setInputState((previous) => {
-      // 把用户行为归约成新状态 { text, cursor } + 副作用
-      const next = reduceInputBoxState(previous, event, layout);
-      //  F1、无法识别的键、提交空内容、粘贴/插入空字符串
-      if (next.state === previous && next.effects.length === 0) {
-        /**
-         * 返回当前状态，不触发重新渲染
-         * 新值和旧值是同一个引用（===），React 会跳过这次渲染
-         */
-        return previous;
-      }
+    commitInputState(reduceInputBoxState(inputStateRef.current, event, layout));
+  };
 
+  /**
+   * 输入框的命令分发器：编辑命令交给 reducer，提交命令在用户事件回调中触发外部副作用。
+   * @param command 已翻译好的输入命令
+   */
+  const dispatchInputCommand = (command: InputBoxCommand) => {
+    if (command.type === "edit") {
       /**
-       * 兑现副作用——把归约器产出的副作用描述（next.effects）逐个执行到真实世界
+       * 这里只处理编辑状态，比如输入文字、删除、移动光标。最后会走
+       * reduceInputBoxState
+       * commitInputState
        */
-      for (const effect of next.effects) {
-        runInputBoxEffect(effect, { onSubmit: onSubmitRef.current });
-      }
+      dispatchInputEvent(command.event);
+      return;
+    }
 
-      return next.state;
-    });
+    // 纯判断：当前文本 trim 后能不能提交。它不改状态，也不触发副作用。
+    const text = getSubmittableText(inputStateRef.current);
+    if (text === null) return;
+
+    /**
+     * 先更新输入框 state，清空输入框
+     * 再调用 onSubmit 副作用
+     * - *最佳实践 让State更新里不调用副作用
+     * - 避免问题：可能因为 React 的调度、开发检查、重复渲染语义等，被以你不完全直观的方式调用。
+     *   于是 onSubmit 这种“不应该重复”的操作就有重复执行或时机不清楚的风险。
+     */
+    commitInputState(createInputBoxState());
+    // 副作用
+    onSubmitRef.current(text);
   };
 
   // 接收处理 Ink 传入的按键信息
   const handleInput = (input: string, key: Key) => {
-    // 翻译成输入框能理解的事件，然后交给状态机处理。
-    dispatchInputEvent(resolveInputBoxEvent(input, key));
+    // 翻译成输入框能理解的命令，然后交给命令分发器处理。
+    dispatchInputCommand(resolveInputBoxCommand(input, key));
   };
 
   useInput(handleInput, { isActive });

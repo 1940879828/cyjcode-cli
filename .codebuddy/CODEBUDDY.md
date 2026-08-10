@@ -28,8 +28,8 @@ src/
   tools/    - 工具集
   ui/       - Ink 终端 UI 组件
     components/    - 纯展示子组件（如 Header）
-    inputBoxModel.ts - 输入框纯函数核心（状态机 + reducer + 视图选择器）
-    InputBox.tsx     - 输入框 UI，只做装配、按键翻译与副作用消费
+    inputBoxModel.ts - 输入框纯函数核心（command 翻译 + reducer + 视图选择器）
+    InputBox.tsx     - 输入框 UI，只做装配、命令分发与提交回调消费
     textEditor.ts    - 文本编辑原语（TextCursor 类，纯计算）
   utils/    - 工具函数
   cli.tsx   - CLI 入口
@@ -56,8 +56,8 @@ tests/     - 集成/单元测试（如 inputBoxModel.test.ts）
 
 输入框采用「纯函数核心 + 精简 UI」的分层，状态和操作逻辑与 React 完全解耦：
 
-- **状态单一来源**：`InputBoxState` 是唯一状态事实来源，按键事件经 `resolveInputBoxEvent` 翻译成 `InputBoxEvent`，再由 `reduceInputBoxState` 产出 `{ state, effects }`。
-- **副作用显式建模**：I/O（如提交）以 `effects` 数组返回，由 UI 层延迟消费，reducer 保持纯函数。
+- **状态单一来源**：`InputBoxState` 是唯一状态事实来源，按键事件经 `resolveInputBoxCommand` 翻译成 `InputBoxCommand`，编辑命令再由 `reduceInputBoxState` 产出新状态。
+- **提交副作用隔离**：提交规则由 `getSubmittableText` 纯函数判断，提交回调只在 UI 层的 submit 命令分支触发，reducer 不产出副作用。
 - **视图选择器独立**：`selectInputBoxView` 从状态推导渲染文本与光标位置，与状态变更分开。
 - **扩展新功能**（⬆️⬇️历史、补全下拉框等）：只在 `inputBoxModel.ts` 增加状态维度与 reducer 分支，UI 几乎不动。
 - 该核心逻辑有独立单元测试（`tests/inputBoxModel.test.ts`）。

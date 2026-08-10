@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createInputBoxState,
+  getSubmittableText,
   reduceInputBoxState,
-  resolveInputBoxEvent,
+  resolveInputBoxCommand,
   selectInputBoxView,
 } from "../src/ui/components/InputBox/inputBoxModel.js";
 import type {
+  InputBoxCommand,
   InputBoxEvent,
   InputKeyLike,
   InputBoxLayout,
@@ -26,16 +28,34 @@ const applyEvents = (
   layout = defaultLayout,
 ): InputBoxState =>
   events.reduce(
-    (state, event) => applyEvent(state, event, layout).state,
+    (state, event) => applyEvent(state, event, layout),
     createInputBoxState(),
   );
+
+const applyCommand = (
+  state: InputBoxState,
+  command: InputBoxCommand,
+  layout = defaultLayout,
+): InputBoxState =>
+  command.type === "edit" ? applyEvent(state, command.event, layout) : state;
+
+const resolveEditEvent = (
+  input: string,
+  key: InputKeyLike,
+): InputBoxEvent => {
+  const command = resolveInputBoxCommand(input, key);
+  if (command.type !== "edit") {
+    throw new Error(`Expected edit command, got ${command.type}`);
+  }
+  return command.event;
+};
 
 const applyResolvedInput = (
   state: InputBoxState,
   input: string,
   key: InputKeyLike,
   layout = defaultLayout,
-) => applyEvent(state, resolveInputBoxEvent(input, key), layout);
+) => applyCommand(state, resolveInputBoxCommand(input, key), layout);
 
 test("inserts text and normalizes pasted newlines", () => {
   const state = applyEvents([
@@ -48,39 +68,41 @@ test("inserts text and normalizes pasted newlines", () => {
     cursor: "hello\nworld".length,
   });
 });
-test("submit trims text, emits an effect, and resets the editor", () => {
+test("selects submittable text by trimming non-blank input", () => {
   const state = applyEvents([{ type: "insertText", text: "  hello  " }]);
-  const result = applyEvent(state, { type: "submit" });
 
-  assert.deepEqual(result.effects, [{ type: "submit", text: "hello" }]);
-  assert.deepEqual(result.state, createInputBoxState());
+  assert.equal(getSubmittableText(state), "hello");
 });
 
-test("submit ignores blank input without clearing it", () => {
+test("ignores blank input as non-submittable", () => {
   const state = applyEvents([{ type: "insertText", text: "   " }]);
-  const result = applyEvent(state, { type: "submit" });
 
-  assert.deepEqual(result.effects, []);
-  assert.equal(result.state.editor.text, "   ");
+  assert.equal(getSubmittableText(state), null);
+  assert.equal(state.editor.text, "   ");
 });
 
-test("resolves enter shortcuts to submit or newline insert", () => {
-  assert.deepEqual(resolveInputBoxEvent("", { return: true }), { type: "submit" });
-  assert.deepEqual(resolveInputBoxEvent("", { return: true, shift: true }), {
-    type: "insertText",
-    text: "\n",
+test("resolves enter shortcuts to submit command or newline insert", () => {
+  assert.deepEqual(resolveInputBoxCommand("", { return: true }), { type: "submit" });
+  assert.deepEqual(resolveInputBoxCommand("", { return: true, shift: true }), {
+    type: "edit",
+    event: {
+      type: "insertText",
+      text: "\n",
+    },
   });
-  assert.deepEqual(resolveInputBoxEvent("", { return: true, meta: true }), {
-    type: "insertText",
-    text: "\n",
+  assert.deepEqual(resolveInputBoxCommand("", { return: true, meta: true }), {
+    type: "edit",
+    event: {
+      type: "insertText",
+      text: "\n",
+    },
   });
 });
 
 test("resolved printable input inserts through the reducer", () => {
   const result = applyResolvedInput(createInputBoxState(), "你", {});
 
-  assert.deepEqual(result.effects, []);
-  assert.deepEqual(result.state.editor, { text: "你", cursor: 1 });
+  assert.deepEqual(result.editor, { text: "你", cursor: 1 });
 });
 
 test("supports backward and word deletion shortcuts", () => {
@@ -88,14 +110,14 @@ test("supports backward and word deletion shortcuts", () => {
 
   const backspace = applyEvent(
     textState,
-    resolveInputBoxEvent("", { backspace: true }),
-  ).state;
+    resolveEditEvent("", { backspace: true }),
+  );
   assert.equal(backspace.editor.text, "hello worl");
 
   const wordBackspace = applyEvent(
     textState,
-    resolveInputBoxEvent("", { backspace: true, ctrl: true }),
-  ).state;
+    resolveEditEvent("", { backspace: true, ctrl: true }),
+  );
   assert.deepEqual(wordBackspace.editor, { text: "hello ", cursor: 6 });
 });
 
@@ -103,15 +125,15 @@ test("supports forward and line deletion shortcuts", () => {
   const middleState: InputBoxState = { editor: { text: "abc", cursor: 1 } };
 
   assert.deepEqual(
-    applyEvent(middleState, resolveInputBoxEvent("", { delete: true })).state.editor,
+    applyResolvedInput(middleState, "", { delete: true }).editor,
     { text: "ac", cursor: 1 },
   );
   assert.deepEqual(
-    applyEvent(middleState, resolveInputBoxEvent("", { delete: true, meta: true })).state.editor,
+    applyResolvedInput(middleState, "", { delete: true, meta: true }).editor,
     { text: "a", cursor: 1 },
   );
   assert.deepEqual(
-    applyEvent({ editor: { text: "abc", cursor: 2 } }, resolveInputBoxEvent("u", { ctrl: true })).state.editor,
+    applyResolvedInput({ editor: { text: "abc", cursor: 2 } }, "u", { ctrl: true }).editor,
     { text: "c", cursor: 0 },
   );
 });
@@ -122,8 +144,7 @@ test("resolved ctrl+k deletes from cursor to line end", () => {
   };
   const result = applyResolvedInput(state, "k", { ctrl: true });
 
-  assert.deepEqual(result.effects, []);
-  assert.deepEqual(result.state.editor, { text: "hello ", cursor: 6 });
+  assert.deepEqual(result.editor, { text: "hello ", cursor: 6 });
 });
 
 test("resolved meta+d deletes the next word", () => {
@@ -132,8 +153,7 @@ test("resolved meta+d deletes the next word", () => {
   };
   const result = applyResolvedInput(state, "d", { meta: true });
 
-  assert.deepEqual(result.effects, []);
-  assert.deepEqual(result.state.editor, { text: "hello  again", cursor: 6 });
+  assert.deepEqual(result.editor, { text: "hello  again", cursor: 6 });
 });
 
 test("resolved unknown ctrl shortcut leaves state unchanged", () => {
@@ -142,31 +162,30 @@ test("resolved unknown ctrl shortcut leaves state unchanged", () => {
   };
   const result = applyResolvedInput(state, "x", { ctrl: true });
 
-  assert.deepEqual(result.effects, []);
-  assert.equal(result.state, state);
+  assert.equal(result, state);
 });
 
 test("supports home, end, arrow, and word movement", () => {
   const endState = applyEvents([{ type: "insertText", text: "hello world" }]);
 
   assert.equal(
-    applyEvent(endState, resolveInputBoxEvent("", { leftArrow: true })).state.editor.cursor,
+    applyEvent(endState, resolveEditEvent("", { leftArrow: true })).editor.cursor,
     10,
   );
   assert.equal(
-    applyEvent(endState, resolveInputBoxEvent("", { leftArrow: true, ctrl: true })).state.editor.cursor,
+    applyEvent(endState, resolveEditEvent("", { leftArrow: true, ctrl: true })).editor.cursor,
     6,
   );
   assert.equal(
-    applyEvent({ editor: { text: "hello world", cursor: 0 } }, resolveInputBoxEvent("", { rightArrow: true, ctrl: true })).state.editor.cursor,
+    applyEvent({ editor: { text: "hello world", cursor: 0 } }, resolveEditEvent("", { rightArrow: true, ctrl: true })).editor.cursor,
     6,
   );
   assert.equal(
-    applyEvent({ editor: { text: "hello", cursor: 2 } }, resolveInputBoxEvent("", { home: true })).state.editor.cursor,
+    applyEvent({ editor: { text: "hello", cursor: 2 } }, resolveEditEvent("", { home: true })).editor.cursor,
     0,
   );
   assert.equal(
-    applyEvent({ editor: { text: "hello", cursor: 2 } }, resolveInputBoxEvent("", { end: true })).state.editor.cursor,
+    applyEvent({ editor: { text: "hello", cursor: 2 } }, resolveEditEvent("", { end: true })).editor.cursor,
     5,
   );
 });
@@ -176,11 +195,11 @@ test("moves vertically through wrapped lines", () => {
   const state = applyEvents([{ type: "insertText", text: "abcd ef" }], layout);
 
   assert.equal(
-    applyEvent(state, resolveInputBoxEvent("", { upArrow: true }), layout).state.editor.cursor,
+    applyEvent(state, resolveEditEvent("", { upArrow: true }), layout).editor.cursor,
     3,
   );
   assert.equal(
-    applyEvent({ editor: { text: "abcd ef", cursor: 3 } }, resolveInputBoxEvent("", { downArrow: true }), layout).state.editor.cursor,
+    applyEvent({ editor: { text: "abcd ef", cursor: 3 } }, resolveEditEvent("", { downArrow: true }), layout).editor.cursor,
     7,
   );
 });
