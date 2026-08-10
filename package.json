@@ -9,7 +9,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "npm run build:babel && concurrently --kill-others --raw --names \"babel,node\" \"babel src --out-dir .babel-out --extensions .ts,.tsx --watch\" \"node --watch .babel-out/cli.js\"",
+    "dev": "npm run build:babel && concurrently --kill-others --names \"babel,node\" \"babel src --out-dir .babel-out --extensions .ts,.tsx --watch\" \"node --watch .babel-out/cli.js\"",
     "dev:tsx": "tsx src/cli.tsx",
     "devrecord": "npm run build:babel && node .babel-out/cli.js --record default",
     "devmock": "npm run build:babel && node .babel-out/cli.js --mock default",
