@@ -135,6 +135,10 @@ export class TextCursor {
     };
   }
 
+  getLineCount(): number {
+    return this.lines.length;
+  }
+
   // 返回 行数据数组添加换行符
   getRenderedText(): string {
     return this.lines.map((line) => line.text).join("\n");

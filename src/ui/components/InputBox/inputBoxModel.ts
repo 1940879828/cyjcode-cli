@@ -8,9 +8,11 @@ export interface InputBoxEditorState {
   cursor: number;
 }
 
-// 核心状态稳定、外围可扩展
+// 输入框状态由文本编辑器与可选的历史浏览会话组成
 export interface InputBoxState {
   editor: InputBoxEditorState;
+  // draft 是进入历史浏览前的普通输入快照；真正编辑历史条目会退出历史浏览。
+  historyBrowsing: { index: number; draft: string } | null;
 }
 
 // 纯布局参数集合
@@ -52,25 +54,13 @@ export interface InputKeyLike {
 
 // 光标所有可能的移动方式
 export type CursorMovement =
-  //左
   | "left"
-  //右
   | "right"
-  //上
   | "up"
-  //下
   | "down"
-  //行首
   | "startOfLine"
-  //行尾
-  | "startOfLine"
-  //上一个单词的开头
-  | "previousWord"
-  //下一个单词的开头
   | "endOfLine"
-  //上一个单词的开头
   | "previousWord"
-  //下一个单词的开头
   | "nextWord";
 
 
@@ -97,6 +87,8 @@ export type InputBoxEvent =
   | { type: "moveCursor"; movement: CursorMovement }
   // 删除文本
   | { type: "deleteText"; deletion: TextDeletion }
+  | { type: "upLineOrHistory" }
+  | { type: "downLineOrHistory" }
   // 重置
   | { type: "reset" }
   // 忽略
@@ -111,6 +103,11 @@ export type InputBoxCommand =
 export interface InputBoxView {
   // 要显示在屏幕上的文本（已按终端宽度换行处理，光标以反色字符内嵌）
   renderedText: string;
+}
+
+export interface InputBoxModelContext {
+  layout: InputBoxLayout;
+  inputHistory: readonly string[];
 }
 
 // 创建一个 "ignore" 类型的 InputBoxEvent
@@ -133,6 +130,10 @@ const deleteText = (deletion: TextDeletion): InputBoxEvent => ({
   type: "deleteText",
   deletion,
 });
+
+const upLineOrHistory = (): InputBoxEvent => ({ type: "upLineOrHistory" });
+
+const downLineOrHistory = (): InputBoxEvent => ({ type: "downLineOrHistory" });
 
 // 创建一个 "edit" 类型的 InputBoxCommand
 const editCommand = (event: InputBoxEvent): InputBoxCommand => ({
@@ -162,7 +163,10 @@ const META_SHORTCUTS: Record<string, InputBoxEvent> = {
 
 // 输入框的初始状态工厂函数
 export function createInputBoxState(): InputBoxState {
-  return { editor: { text: "", cursor: 0 } };
+  return {
+    editor: { text: "", cursor: 0 },
+    historyBrowsing: null,
+  };
 }
 
 /**
@@ -193,8 +197,8 @@ export function resolveInputBoxCommand(
    */
   if (key.home) return editCommand(moveCursor("startOfLine"));
   if (key.end) return editCommand(moveCursor("endOfLine"));
-  if (key.upArrow) return editCommand(moveCursor("up"));
-  if (key.downArrow) return editCommand(moveCursor("down"));
+  if (key.upArrow) return editCommand(resolveUpArrowEvent(key));
+  if (key.downArrow) return editCommand(resolveDownArrowEvent(key));
   if (key.leftArrow) {
     return editCommand(moveCursor(key.ctrl || key.meta ? "previousWord" : "left"));
   }
@@ -218,14 +222,15 @@ export function resolveInputBoxCommand(
  * - 把"用户动作"变成"状态变更"
  * @param state 当前状态
  * @param event 要处理的事件（用户动作）
- * @param layout 布局（输入框宽度），供换行/光标定位用
+ * @param context 布局和历史列表等纯函数外部上下文
  * @returns 
  */
 export function reduceInputBoxState(
   state: InputBoxState,
   event: InputBoxEvent,
-  layout: InputBoxLayout,
+  context: InputBoxModelContext,
 ): InputBoxState {
+  const { layout } = context;
   switch (event.type) {
     // 插入/粘贴文本
     case "insertText":
@@ -233,7 +238,7 @@ export function reduceInputBoxState(
         // 文本为空 → 状态不变（unchanged）
         ? unchanged(state)
         // 否则 → 构造光标，执行 insert，生成新状态
-        : updateCursor(state, layout, (cursor) => cursor.insert(event.text));
+        : updateText(state, layout, (cursor) => cursor.insert(event.text));
     // 移动光标
     case "moveCursor":
       // moveCursorBy 把 CursorMovement 分发到 TextCursor 的移动方法
@@ -242,10 +247,15 @@ export function reduceInputBoxState(
       );
     // 删除文本
     case "deleteText":
-      return updateCursor(state, layout, (cursor) =>
+      return updateText(state, layout, (cursor) =>
         // deleteFromCursor 把 TextDeletion 分发到 TextCursor 的删除方法
         deleteFromCursor(cursor, event.deletion),
       );
+    // 历史浏览
+    case "upLineOrHistory":
+      return upLineOrHistoryState(state, context);
+    case "downLineOrHistory":
+      return downLineOrHistoryState(state, context);
     // 重置
     case "reset":
       // 直接回到初始状态
@@ -289,6 +299,119 @@ const createCursor = (state: InputBoxState, layout: InputBoxLayout): TextCursor 
 // 这次事件处理前后状态没有任何变化
 const unchanged = (state: InputBoxState): InputBoxState => state;
 
+// 判断方向键是否 不带任何修饰键 被按下
+const isPlainArrowKey = (key: InputKeyLike): boolean =>
+  !key.shift && !key.ctrl && !key.meta;
+
+const resolveUpArrowEvent = (key: InputKeyLike): InputBoxEvent =>
+  isPlainArrowKey(key) ? upLineOrHistory() : moveCursor("up");
+
+const resolveDownArrowEvent = (key: InputKeyLike): InputBoxEvent =>
+  isPlainArrowKey(key) ? downLineOrHistory() : moveCursor("down");
+
+// 光标是否在第一行
+const isAtFirstVisualLine = (
+  state: InputBoxState,
+  layout: InputBoxLayout,
+): boolean => {
+  return createCursor(state, layout).getPosition().line === 0;
+};
+
+// 光标是否在最后一行
+const isAtLastVisualLine = (
+  state: InputBoxState,
+  layout: InputBoxLayout,
+): boolean => {
+  const cursor = createCursor(state, layout);
+  return cursor.getPosition().line === cursor.getLineCount() - 1;
+};
+
+const upLineOrHistoryState = (
+  state: InputBoxState,
+  context: InputBoxModelContext,
+): InputBoxState => {
+  // historyBrowsing 不为 null 正在浏览历史
+  if (state.historyBrowsing !== null) {
+    // 触发浏览上一条历史
+    return browsePreviousHistory(state, context.inputHistory);
+  }
+  return isAtFirstVisualLine(state, context.layout)
+    ? browsePreviousHistory(state, context.inputHistory)
+    : updateCursor(state, context.layout, (cursor) => cursor.up());
+};
+
+const downLineOrHistoryState = (
+  state: InputBoxState,
+  context: InputBoxModelContext,
+): InputBoxState => {
+  if (state.historyBrowsing !== null) {
+    return browseNextHistory(state, context.inputHistory);
+  }
+  return isAtLastVisualLine(state, context.layout)
+    ? unchanged(state)
+    : updateCursor(state, context.layout, (cursor) => cursor.down());
+};
+
+const browsePreviousHistory = (
+  state: InputBoxState,
+  inputHistory: readonly string[],
+): InputBoxState => {
+  if (inputHistory.length === 0) return unchanged(state);
+  // 最老历史是硬边界：继续向上停在当前条目。
+  if (state.historyBrowsing?.index === 0) return unchanged(state);
+  // 进入历史前的快照
+  const draft = state.historyBrowsing?.draft ?? state.editor.text;
+  // 计算 下一个要浏览的历史条目索引 首次进入就拿最后一个 后续在浏览历史状态就 上一次的index-1
+  const nextIndex =
+    state.historyBrowsing === null
+      ? inputHistory.length - 1
+      : state.historyBrowsing.index - 1;
+  return browseToHistoryIndex(state, inputHistory, { index: nextIndex, draft });
+};
+
+const browseNextHistory = (
+  state: InputBoxState,
+  inputHistory: readonly string[],
+): InputBoxState => {
+  if (state.historyBrowsing === null) return unchanged(state);
+  const nextIndex = state.historyBrowsing.index + 1;
+  if (nextIndex >= inputHistory.length) {
+    // 最新历史之后的虚拟条目是进入历史前的草稿；向下越界即恢复并退出。
+    return restoreDraftBeforeHistory(state);
+  }
+  return browseToHistoryIndex(
+    state,
+    inputHistory,
+    { index: nextIndex, draft: state.historyBrowsing.draft },
+  );
+};
+
+const browseToHistoryIndex = (
+  state: InputBoxState,
+  inputHistory: readonly string[],
+  browsing: { index: number; draft: string },
+): InputBoxState => {
+  // 取出对应历史文本
+  const text = inputHistory[browsing.index] ?? "";
+  return {
+    ...state,
+    // 替换编辑器内容
+    editor: { text, cursor: text.length },
+    // 更新浏览状态
+    historyBrowsing: browsing,
+  };
+};
+
+// 退出浏览历史状态
+const restoreDraftBeforeHistory = (state: InputBoxState): InputBoxState => {
+  const text = state.historyBrowsing?.draft ?? state.editor.text;
+  return {
+    ...state,
+    editor: { text, cursor: text.length },
+    historyBrowsing: null,
+  };
+};
+
 /**
  * 通用光标操作封装
  * 构造光标 → 应用操作 → 写回状态
@@ -298,11 +421,33 @@ const unchanged = (state: InputBoxState): InputBoxState => state;
  * @param update 
  * @returns 
  */
+// 光标移动只是查看历史条目，保留 historyBrowsing 才能继续上下浏览并恢复原草稿。
 const updateCursor = (
   state: InputBoxState,
   layout: InputBoxLayout,
   update: (cursor: TextCursor) => TextCursor,
 ): InputBoxState => withEditor(state, update(createCursor(state, layout)));
+
+const updateText = (
+  state: InputBoxState,
+  layout: InputBoxLayout,
+  update: (cursor: TextCursor) => TextCursor,
+): InputBoxState => {
+  const cursor = update(createCursor(state, layout));
+  if (cursor.text === state.editor.text) {
+    // 文本没变（如光标在首位按 backspace 这种 no-op 删除）
+    return cursor.offset === state.editor.cursor
+        // 光标也没动 → 完全不变，保留 historyBrowsing
+      ? unchanged(state)
+        // 仅光标动 → 更新 editor，但仍保留 historyBrowsing
+      : withEditor(state, cursor);
+  }
+  return {
+    // 文本被实际编辑后，当前内容成为普通草稿，不再绑定原历史条目。
+    ...withEditor(state, cursor),
+    historyBrowsing: null,
+  };
+};
 
 // 负责"把结果写回状态"
 const withEditor = (
@@ -318,9 +463,22 @@ const withEditor = (
 });
 
 export const getSubmittableText = (state: InputBoxState): string | null => {
-  const text = state.editor.text.trim();
+  const text = state.editor.text;
   // 用户没输入内容 忽略
-  return text ? text : null;
+  return isBlankInput(text) ? null : text;
+};
+
+export const isBlankInput = (text: string): boolean => !text.trim();
+
+// 封装一层，用来添加历史记录
+export const appendInputHistory = (
+  inputHistory: readonly string[],
+  text: string,
+): readonly string[] => {
+  // 空内容或与上一项相同就原样返回
+  if (isBlankInput(text)) return inputHistory;
+  if (inputHistory.at(-1) === text) return inputHistory;
+  return [...inputHistory, text];
 };
 
 /**

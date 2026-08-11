@@ -1,5 +1,7 @@
 # InputBox 学习总结 QA
 
+> 本文件非规范、仅学习用，实现以源码为准。
+
 > 适用范围：`src/ui/components/InputBox` 当前的 command 分发版本。
 >
 > 核心线索：终端里没有真实输入框，`InputBox` 是用 Ink 监听键盘、用纯函数维护编辑状态、再把状态渲染成文本。
@@ -181,7 +183,7 @@ submit:
 
 ```ts
 setInputState((previous) => {
-  const next = reduceInputBoxState(previous, event, layout);
+  const next = reduceInputBoxState(previous, event, context);
   onSubmit(text);
   return next;
 });
@@ -288,12 +290,12 @@ onSubmitRef.current(text);
 
 ### Q10: `reduceInputBoxState` 现在负责什么？
 
-**A:** 只负责编辑状态变化。
+**A:** 负责输入框纯状态变化，包括文本编辑态与历史浏览态。
 
 它接收：
 
 ```ts
-state + event + layout
+state + event + context(layout + inputHistory)
 ```
 
 返回：
@@ -320,18 +322,18 @@ nextState
 
 ```ts
 export const getSubmittableText = (state: InputBoxState): string | null => {
-  const text = state.editor.text.trim();
-  return text ? text : null;
+  const text = state.editor.text;
+  return text.trim() ? text : null;
 };
 ```
 
 它集中表达提交规则：
 
-- 首尾空白会被 trim；
+- trim 只用于判空；
 - trim 后为空则不能提交；
-- 可提交时返回真正提交给上层的文本。
+- 可提交时返回原始文本，保留多行 prompt 的首尾空白和缩进。
 
-这样 UI 层不用自己重复写 trim 逻辑，测试也能直接覆盖这条规则。
+这样 UI 层不用自己重复写判空逻辑，测试也能直接覆盖这条规则。
 
 ---
 
@@ -354,17 +356,18 @@ usePaste((text) => dispatchInputEvent({ type: "insertText", text }), { isActive 
 
 ## 扩展题
 
-### Q13: 如果要加历史命令，上下箭头应该改哪里？
+### Q13: 历史命令和上下箭头的逻辑在哪里？
 
 **A:** 优先改 `inputBoxModel.ts`。
 
-可能需要：
+当前结构是：
 
-1. 给 `InputBoxState` 增加历史相关状态，比如 `history`、`historyIndex`。
-2. 给 `InputBoxEvent` 增加 `historyPrev` / `historyNext`。
-3. 在 `resolveInputBoxCommand` 里把 `upArrow` / `downArrow` 翻译成历史事件，或按模式区分历史和光标移动。
-4. 在 `reduceInputBoxState` 里增加对应分支。
-5. 给 `tests/inputBoxModel.test.ts` 增加纯函数测试。
+1. `InputBoxState.historyBrowsing` 保存 `{ index, draft } | null`；`draft` 是进入历史浏览前的普通输入快照。
+2. `InputBoxEvent` 使用 `upLineOrHistory` / `downLineOrHistory` 表达上下键的高层意图。
+3. `resolveInputBoxCommand` 不读状态，只把 plain 上下键翻译成 line-or-history 事件。
+4. `reduceInputBoxState` 根据 state、layout、inputHistory 判断移动视觉行还是切换历史，并在越过最新历史时恢复 draft。
+5. `appendInputHistory` 负责提交后的历史入账：保存原始可提交文本，只跳过连续完全相同项。
+6. `tests/inputBoxModel.test.ts` 覆盖视觉行移动、历史切换、边界忽略和草稿恢复。
 
 `InputBox.tsx` 理想情况下只需要继续分发 command，不应该塞进大量历史逻辑。
 

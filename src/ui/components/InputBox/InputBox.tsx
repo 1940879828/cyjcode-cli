@@ -23,6 +23,7 @@ const PROMPT_WIDTH = stringWidth(PROMPT);
 interface Props {
   // 提交回调 上层拿到这段文本去发起 AI 请求
   onSubmit: (text: string) => void;
+  inputHistory?: readonly string[];
   // 为 true 时输入框不可输入
   disabled: boolean;
   // true 表示 App 正在退出 : isActive 变 false 隐藏光标
@@ -37,10 +38,15 @@ const getScreenWidth = (columns: number | undefined): number | null =>
 const getInputColumns = (screenWidth: number): number =>
   Math.max(1, screenWidth - PROMPT_WIDTH - 1);
 
-const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
+const InputBox = ({
+  onSubmit,
+  inputHistory = [],
+  disabled,
+  isExiting = false,
+}: Props) => {
   /**
-   * 输入框核心状态（唯一事实来源）：仅含文本编辑态；
-   * - 宽度/回调/禁用态等外围状态不在此状态机内，分别走 layout 参数、ref、Props
+   * 输入框核心状态（唯一事实来源）：包含文本编辑态与历史浏览态；
+   * - 宽度/历史列表/回调/禁用态等外围状态不在此状态机内，分别走 layout 参数、ref、Props
    */
   const [inputState, setInputState] = useState<InputBoxState>(() =>
     createInputBoxState(),
@@ -48,9 +54,15 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
   const inputStateRef = useRef(inputState);
   /**
    * 缓存最新的 onSubmit 引用，供用户事件回调消费，避免闭包捕获过期回调
+   * - useRef 初始化存一份；每次渲染用最新值覆盖
    */
-  const onSubmitRef = useRef(onSubmit);// 初始化存一份
-  onSubmitRef.current = onSubmit;// 每次渲染都用最新值覆盖
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
+  /**
+   * useInput 注册的回调可能晚于渲染执行，历史列表也用 ref 读取最新值。
+   */
+  const inputHistoryRef = useRef(inputHistory);
+  inputHistoryRef.current = inputHistory;
 
   /**
    * 获取当前终端的宽度（以"列数"为单位），取不到则返回 null
@@ -88,7 +100,13 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
    * @param event 已翻译好的编辑动作
    */
   const dispatchInputEvent = (event: InputBoxEvent) => {
-    commitInputState(reduceInputBoxState(inputStateRef.current, event, layout));
+    commitInputState(
+      reduceInputBoxState(
+        inputStateRef.current,
+        event,
+        { layout, inputHistory: inputHistoryRef.current },
+      ),
+    );
   };
 
   /**
@@ -106,7 +124,7 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
       return;
     }
 
-    // 纯判断：当前文本 trim 后能不能提交。它不改状态，也不触发副作用。
+    // 历史浏览态提交等价于提交当前输入框文本；reset 会一起退出历史浏览。
     const text = getSubmittableText(inputStateRef.current);
     if (text === null) return;
 

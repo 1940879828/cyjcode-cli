@@ -4,6 +4,7 @@ import { hasConfig, getConfig } from "../config/store.js";
 import { useChat, useExit } from "./hooks/index.js";
 import MessageList, { MessageRow } from "./components/MessageList/index.js";
 import InputBox from "./components/InputBox/index.js";
+import { appendInputHistory } from "./components/InputBox/inputBoxModel.js";
 import { parseSlashInput } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
 import pkg from "../../package.json" with { type: "json" };
@@ -13,6 +14,7 @@ const App = () => {
   const [configured, setConfigured] = useState<boolean | null>(null);
   /** 退出流程：isExiting 供其他组件消费，requestExit 触发退出 */
   const { isExiting } = useExit();
+  const [inputHistory, setInputHistory] = useState<readonly string[]>([]);
   /** 聊天状态与操作 */
   const {
     entries,
@@ -29,9 +31,14 @@ const App = () => {
   }, []);
 
   const handleSubmit = (text: string) => {
-    // 拦截所有 / 开头输入：未识别命令不给 AI，防止配置错误时触发 API 调用
-    if (text.startsWith("/")) {
-      const parsed = parseSlashInput(text);
+    const commandText = text.trim();
+    setInputHistory((previousHistory) =>
+      appendInputHistory(previousHistory, text),
+    );
+
+    // 拦截 trim 后 / 开头的输入：未识别命令不给 AI，防止配置错误时触发 API 调用
+    if (commandText.startsWith("/")) {
+      const parsed = parseSlashInput(commandText);
       if (parsed) {
         const ctx = {
           clearChat,
@@ -39,7 +46,7 @@ const App = () => {
         };
         appendSystemMessage(parsed.command.handler(parsed.args, ctx));
       } else {
-        appendSystemMessage(`未知命令: ${text}\n输入 /help 查看可用命令`);
+        appendSystemMessage(`未知命令: ${commandText}\n输入 /help 查看可用命令`);
       }
       return;
     }
@@ -79,7 +86,12 @@ const App = () => {
         <MessageRow entry={{ role: "assistant", content: streamingText }} />
       )}
 
-      <InputBox onSubmit={handleSubmit} disabled={isStreaming} isExiting={isExiting} />
+      <InputBox
+        onSubmit={handleSubmit}
+        inputHistory={inputHistory}
+        disabled={isStreaming}
+        isExiting={isExiting}
+      />
 
       <Box paddingX={1} >
         <Text color="gray" dimColor>
