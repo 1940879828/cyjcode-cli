@@ -49,8 +49,8 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
   /**
    * 缓存最新的 onSubmit 引用，供用户事件回调消费，避免闭包捕获过期回调
    */
-  const onSubmitRef = useRef(onSubmit);
-  onSubmitRef.current = onSubmit;
+  const onSubmitRef = useRef(onSubmit);// 初始化存一份
+  onSubmitRef.current = onSubmit;// 每次渲染都用最新值覆盖
 
   /**
    * 获取当前终端的宽度（以"列数"为单位），取不到则返回 null
@@ -128,7 +128,9 @@ const InputBox = ({ onSubmit, disabled, isExiting = false }: Props) => {
     dispatchInputCommand(resolveInputBoxCommand(input, key));
   };
 
+  // 处理键盘输入事件
   useInput(handleInput, { isActive });
+  // 接收处理粘贴事件
   usePaste((text) => dispatchInputEvent({ type: "insertText", text }), { isActive });
 
   const renderedText = view.renderedText || " ";
