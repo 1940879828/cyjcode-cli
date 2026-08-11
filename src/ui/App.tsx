@@ -1,10 +1,9 @@
 import { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { hasConfig, getConfig } from "../config/store.js";
-import { useChat } from "./useChat.js";
-import { useExit } from "./useExit.js";
-import MessageList, { MessageRow } from "./MessageList.js";
-import InputBox from "./components/InputBox/InputBox.js";
+import { useChat, useExit } from "./hooks/index.js";
+import MessageList, { MessageRow } from "./components/MessageList/index.js";
+import InputBox from "./components/InputBox/index.js";
 import { parseSlashInput } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
 import pkg from "../../package.json" with { type: "json" };

@@ -7,13 +7,13 @@
 ## 目录约定
 
 - `src/cli.tsx`：CLI 入口和命令行参数处理。
-- `src/ui/`：Ink/React 终端界面及交互逻辑。
+- `src/ui/`：Ink/React 终端界面及交互逻辑；组件采用「一个组件一个目录 + index.ts 索引导出」组织，通用 UI hooks 放在 `src/ui/hooks/`。
 - `src/agent/`：Agent 循环、上下文历史和提示词。
 - `src/llm/`：OpenAI 客户端和 LLM 类型定义。
 - `src/tools/`：提供给 Agent 使用的文件读写、搜索、重命名和目录浏览工具。
 - `src/config/`：本地配置存储。
 - `src/devmock/`：开发录制与 mock 回放，不参与生产构建。
-- `src/ui/`：其中 `inputBoxModel.ts` 为输入框纯函数核心（command 翻译 + reducer + 视图选择器），`InputBox.tsx` 只做装配、命令分发与提交回调消费，`textEditor.ts` 提供 `TextCursor` 纯计算原语。
+- `src/ui/components/InputBox/`：其中 `inputBoxModel.ts` 为输入框纯函数核心（command 翻译 + reducer + 视图选择器），`InputBox.tsx` 只做装配、命令分发与提交回调消费，`textEditor.ts` 提供 `TextCursor` 纯计算原语。
 - `tests/`：单元/集成测试，如 `tests/inputBoxModel.test.ts`（输入框核心逻辑）。
 - `docs/`：需求、迭代计划和运维文档。
 - `.babel-out/`、`dist/`：构建产物，不要手工修改，也不要提交。
@@ -70,7 +70,7 @@ npm run devrecord    # 录制默认开发会话
 npm run devmock      # 回放 mockdata/default.json
 ```
 
-完成代码修改后，至少运行 `npm run typecheck`；修改 `src/ui/inputBoxModel.ts` 还需运行 `npm run test:inputbox`；涉及构建流程、入口或打包行为的修改还要运行 `npm run build`。如果测试或验证因环境、凭据或外部服务不可用而跳过，应在交付说明中明确写出。
+完成代码修改后，至少运行 `npm run typecheck`；修改 `src/ui/components/InputBox/inputBoxModel.ts` 还需运行 `npm run test:inputbox`；涉及构建流程、入口或打包行为的修改还要运行 `npm run build`。如果测试或验证因环境、凭据或外部服务不可用而跳过，应在交付说明中明确写出。
 
 ## Git 注意事项
 

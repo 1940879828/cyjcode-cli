@@ -27,10 +27,14 @@ src/
   test/     - 测试代码
   tools/    - 工具集
   ui/       - Ink 终端 UI 组件
-    components/    - 纯展示子组件（如 Header）
-    inputBoxModel.ts - 输入框纯函数核心（command 翻译 + reducer + 视图选择器）
-    InputBox.tsx     - 输入框 UI，只做装配、命令分发与提交回调消费
-    textEditor.ts    - 文本编辑原语（TextCursor 类，纯计算）
+    hooks/         - 通用 UI hooks（如 useChat、useExit）
+    components/    - 组件目录，采用「一个组件一个目录 + index.ts 索引导出」
+      Header/
+      InputBox/
+        inputBoxModel.ts - 输入框纯函数核心（command 翻译 + reducer + 视图选择器）
+        InputBox.tsx     - 输入框 UI，只做装配、命令分发与提交回调消费
+        textEditor.ts    - 文本编辑原语（TextCursor 类，纯计算）
+      MessageList/
   utils/    - 工具函数
   cli.tsx   - CLI 入口
 tests/     - 集成/单元测试（如 inputBoxModel.test.ts）

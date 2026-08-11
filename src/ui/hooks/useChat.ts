@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { runAgentLoop } from "../agent/loop.js";
-import { clearHistory } from "../agent/history.js";
-import type { ToolResult } from "../tools/types.js";
-import { getRecordPath, recordAgentLoop, getMockPath, mockAgentLoop } from "../devmock/index.js";
+import { runAgentLoop } from "../../agent/loop.js";
+import { clearHistory } from "../../agent/history.js";
+import type { ToolResult } from "../../tools/types.js";
+import { getRecordPath, recordAgentLoop, getMockPath, mockAgentLoop } from "../../devmock/index.js";
 
 export interface ToolCallEntry {
   callId: string;

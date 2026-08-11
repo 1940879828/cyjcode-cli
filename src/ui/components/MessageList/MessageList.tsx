@@ -1,6 +1,6 @@
 import { Box, Static, Text } from "ink";
-import type { ChatEntry } from "./useChat.js";
-import Header from "./components/Header.js";
+import type { ChatEntry } from "../../hooks/index.js";
+import Header from "../Header/index.js";
 
 const MAX_VISIBLE_MESSAGES = 20;
 
