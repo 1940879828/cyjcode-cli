@@ -3,6 +3,7 @@ import type { ChatEntry } from "../../hooks/index.js";
 import Header from "../Header/index.js";
 
 const MAX_VISIBLE_MESSAGES = 20;
+const ASSISTANT_PREFIX_COLOR = "#f5f5f5";
 
 interface Props {
   entries: ChatEntry[];
@@ -33,8 +34,8 @@ type StaticEntry =
 
 const ROLE_COLORS: Record<ChatEntry["role"], string | undefined> = {
   system: undefined,
-  user: "#505050",
-  assistant: undefined,
+  user: "#f5f5f5",
+  assistant: "#f2f2f2",
   thinking: "yellow",
   tool_call: "yellow",
   tool_result: "gray",
@@ -101,15 +102,24 @@ const MessageList = ({ entries, version, model, thinking, reasoningEffort }: Pro
 };
 
 export const MessageRow = ({ entry }: { entry: MessageRowEntry }) => (
-  <Box backgroundColor={ROLE_BACKGROUND_COLORS[entry.role]}>
-    <Text
-      color={ROLE_COLORS[entry.role]}
-      bold
-      dimColor={entry.role === "thinking"}
-    >
-      {entry.role === "user" ? "❯ " : ROLE_LABELS[entry.role]}
-      {entry.role === "thinking" ? ": " : ""}
-    </Text>
+  <Box
+    backgroundColor={ROLE_BACKGROUND_COLORS[entry.role]}
+    marginTop={entry.role === "thinking" ? 1 : 0}
+    marginBottom={entry.role === "thinking" ? 1 : 0}
+    marginLeft={entry.role === "assistant" ? 1 : 0}
+  >
+    {entry.role === "assistant" ? (
+      <Text color={ASSISTANT_PREFIX_COLOR}>● </Text>
+    ) : (
+      <Text
+        color={ROLE_COLORS[entry.role]}
+        bold
+        dimColor={entry.role === "thinking"}
+      >
+        {entry.role === "user" ? "❯ " : ROLE_LABELS[entry.role]}
+        {entry.role === "thinking" ? ": " : ""}
+      </Text>
+    )}
     <Box>{renderContent(entry)}</Box>
   </Box>
 );
@@ -121,9 +131,8 @@ const renderContent = (entry: MessageRowEntry) => {
   if (entry.role === "tool_result" && entry.toolResult) {
     return <ToolResultContent toolResult={entry.toolResult} content={entry.content} />;
   }
-  const color = entry.role === "user" ? "gray" : ROLE_COLORS[entry.role];
   return (
-    <Text color={color} dimColor={entry.role === "thinking"}>
+    <Text color={ROLE_COLORS[entry.role]} dimColor={entry.role === "thinking"}>
       {entry.content}
     </Text>
   );

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Box, Text, useInput, usePaste, useWindowSize } from "ink";
 import type { Key } from "ink";
 import stringWidth from "string-width";
+import LoadingStatus from "../LoadingStatus/LoadingStatus.js";
 import {
   createInputBoxState,
   getSubmittableText,
@@ -156,11 +157,7 @@ const InputBox = ({
   return (
     <Box flexDirection="column" paddingX={0} marginTop={1}>
       {disabled && (
-        <Box>
-          <Text color="gray" dimColor>
-            等待回复中……
-          </Text>
-        </Box>
+        <LoadingStatus />
       )}
       <Box
         width={screenWidth - 1}
