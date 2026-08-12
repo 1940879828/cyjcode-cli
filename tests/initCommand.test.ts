@@ -35,6 +35,7 @@ test("renderInitCommandPrompt includes required AGENTS.md sections", () => {
 
   for (const section of [
     "开发约定",
+    "修改前检查",
     "代码风格守则",
     "代码审查守则",
     "Git 注意事项",
@@ -42,6 +43,14 @@ test("renderInitCommandPrompt includes required AGENTS.md sections", () => {
   ]) {
     assert.match(prompt, new RegExp(section));
   }
+});
+
+test("renderInitCommandPrompt includes pre-edit checks", () => {
+  const prompt = renderInitCommandPrompt(createWorkspace());
+
+  assert.match(prompt, /先阅读本文件并按约定执行/);
+  assert.match(prompt, /编辑前检查 `git status`/);
+  assert.match(prompt, /完成后至少运行 `npm run typecheck`/);
 });
 
 test("expandInitCommandMessages replaces only user /init messages", () => {
