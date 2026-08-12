@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { getConfig } from "../config/store.js";
 import type {
   ChatMessage,
+  TokenUsage,
   ToolCall,
   ToolCallDelta,
   StreamEvent,
@@ -90,6 +91,7 @@ export async function* streamChat(
       model: config.model,
       messages: openaiMessages,
       stream: true,
+      stream_options: { include_usage: true },
       ...(config.thinking
         ? { thinking: { type: "enabled" as const } }
         : {}),
@@ -106,6 +108,10 @@ export async function* streamChat(
     let hasContent = false;
 
     for await (const chunk of stream) {
+      if (chunk.usage) {
+        yield { type: "usage", usage: toTokenUsage(chunk.usage) };
+      }
+
       const delta = chunk.choices[0]?.delta;
       if (!delta) continue;
 
@@ -193,4 +199,12 @@ interface ToolCallAccumulator {
   id: string;
   name: string;
   arguments: string;
+}
+
+function toTokenUsage(usage: OpenAI.Completions.CompletionUsage): TokenUsage {
+  return {
+    promptTokens: usage.prompt_tokens,
+    completionTokens: usage.completion_tokens,
+    totalTokens: usage.total_tokens,
+  };
 }

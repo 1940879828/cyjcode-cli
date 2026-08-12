@@ -42,6 +42,12 @@ export interface ToolCallDelta {
   };
 }
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 // 流失输出接口事件返回值 适配成当前项目的需要的结构
 export type StreamEvent =
   | 
@@ -61,6 +67,12 @@ export type StreamEvent =
     // 工具调用增量
     type: "tool_call_delta"; 
     deltas: ToolCallDelta[]
+  }
+  |
+  {
+    // 本轮 API 返回的真实 token 用量，promptTokens 用于上下文容量显示
+    type: "usage";
+    usage: TokenUsage;
   }
   | 
   { 

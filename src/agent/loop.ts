@@ -1,5 +1,5 @@
 import { streamChat } from "../llm/client.js";
-import type { ChatMessage, ToolCall } from "../llm/types.js";
+import type { ChatMessage, TokenUsage, ToolCall } from "../llm/types.js";
 import { toolsToOpenAI, getTool } from "../tools/index.js";
 import type { ToolResult } from "../tools/types.js";
 import type { AgentEvent } from "./types.js";
@@ -130,6 +130,7 @@ export async function* runAgentLoop(
     let fullText = "";
     let reasoningText = "";
     let toolCalls: ToolCall[] | null = null;
+    let usage: TokenUsage | null = null;
 
     try {
       const stream = streamChat({ messages, tools });
@@ -150,6 +151,11 @@ export async function* runAgentLoop(
             // 增量在 done 事件中统一处理
             break;
 
+          case "usage":
+            usage = event.usage;
+            yield { type: "usage", usage };
+            break;
+
           case "done": {
             const tcList = event.message.tool_calls;
             if (tcList?.length) {
@@ -161,6 +167,9 @@ export async function* runAgentLoop(
               hasToolCalls: !!toolCalls,
               toolCallCount: toolCalls?.length ?? 0,
               responseLength: fullText.length,
+              promptTokens: usage?.promptTokens,
+              completionTokens: usage?.completionTokens,
+              totalTokens: usage?.totalTokens,
             });
             break;
           }

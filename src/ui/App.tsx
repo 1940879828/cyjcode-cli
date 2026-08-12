@@ -5,6 +5,7 @@ import { useChat, useExit } from "./hooks/index.js";
 import MessageList, { MessageRow } from "./components/MessageList/index.js";
 import InputBox from "./components/InputBox/index.js";
 import { appendInputHistory } from "./components/InputBox/inputBoxModel.js";
+import { selectContextUsageView } from "./contextUsage.js";
 import { parseSlashInput } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
 import pkg from "../../package.json" with { type: "json" };
@@ -21,6 +22,7 @@ const App = () => {
     isStreaming,
     streamingText,
     streamingReasoning,
+    contextUsage,
     sendMessage,
     clearChat,
     appendSystemMessage,
@@ -68,6 +70,7 @@ const App = () => {
   }
 
   const config = getConfig();
+  const contextUsageView = selectContextUsageView(contextUsage, config.model);
 
   return (
     <Box flexDirection="column">
@@ -96,9 +99,14 @@ const App = () => {
       />
 
       <Box paddingX={1} >
-        <Text color="gray" dimColor>
-          /help 帮助 | /config 配置 | /clear 清空 | /setup 重配 | Ctrl+C 退出
-        </Text>
+        {contextUsageView && (
+          <>
+            <Text color="gray" dimColor> | </Text>
+            <Text color={contextUsageView.color} dimColor={contextUsageView.color === "gray"}>
+              {contextUsageView.text}
+            </Text>
+          </>
+        )}
       </Box>
     </Box>
   );

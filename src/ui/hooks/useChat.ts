@@ -3,6 +3,7 @@ import { runAgentLoop } from "../../agent/loop.js";
 import { clearHistory } from "../../agent/history.js";
 import type { ToolResult } from "../../tools/types.js";
 import { getRecordPath, recordAgentLoop, getMockPath, mockAgentLoop } from "../../devmock/index.js";
+import type { ContextUsageState } from "../contextUsage.js";
 
 export interface ToolCallEntry {
   callId: string;
@@ -72,6 +73,9 @@ export function useChat() {
    */
   const [streamingText, setStreamingText] = useState("");
   const [streamingReasoning, setStreamingReasoning] = useState("");
+  const [contextUsage, setContextUsage] = useState<ContextUsageState>({
+    status: "idle",
+  });
 
   /** 追加一条消息到持久列表 */
   const append = (entry: ChatEntry) => {
@@ -128,8 +132,15 @@ export function useChat() {
           );
           break;
 
+        case "usage":
+          setContextUsage({ status: "ready", usage: event.usage });
+          break;
+
         // 流式结束，归档到 entries
         case "done":
+          setContextUsage((current) =>
+            current.status === "loading" ? { status: "error" } : current,
+          );
           setStreamingReasoning("");
           if (reasoning) {
             append(makeEntry("thinking", reasoning));
@@ -140,6 +151,9 @@ export function useChat() {
 
         case "error":
           append(makeEntry("error", `错误: ${event.error}`));
+          setContextUsage((current) =>
+            current.status === "loading" ? { status: "error" } : current,
+          );
           break;
       }
     }
@@ -154,12 +168,16 @@ export function useChat() {
     setIsStreaming(true);
     setStreamingText("");
     setStreamingReasoning("");
+    setContextUsage({ status: "loading" });
 
     try {
       // 执行对话循环
       await consumeEvents(text);
     } catch (err) {
       append(makeEntry("error", `错误: ${err instanceof Error ? err.message : String(err)}`));
+      setContextUsage((current) =>
+        current.status === "loading" ? { status: "error" } : current,
+      );
     } finally {
       setIsStreaming(false);
       setStreamingText("");
@@ -171,6 +189,7 @@ export function useChat() {
   const clearChat = () => {
     setEntries([]);
     clearHistory();
+    setContextUsage({ status: "idle" });
   };
 
   const appendSystemMessage = (content: string) => {
@@ -182,6 +201,7 @@ export function useChat() {
     isStreaming,
     streamingText,
     streamingReasoning,
+    contextUsage,
     sendMessage,
     clearChat,
     appendSystemMessage,
