@@ -1,20 +1,30 @@
-import { useState, useEffect } from "react";
-import { Box, Text } from "ink";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { Box, Text, measureElement, useWindowSize } from "ink";
+import type { DOMElement } from "ink";
 import { hasConfig, getConfig } from "../config/store.js";
-import { useChat, useExit } from "./hooks/index.js";
-import MessageList, { MessageRow } from "./components/MessageList/index.js";
-import InputBox from "./components/InputBox/index.js";
+import { useChat, useChatInputRouter, useExit } from "./hooks/index.js";
+import InputBox, {
+  getInputColumns,
+  getMaxVisibleInputLines,
+} from "./components/InputBox/index.js";
+import TranscriptViewport, { useTranscriptViewportController } from "./components/TranscriptViewport/index.js";
+import { useInputBoxController } from "./components/InputBox/useInputBoxController.js";
 import { appendInputHistory } from "./components/InputBox/inputBoxModel.js";
 import { selectContextUsageView } from "./contextUsage.js";
 import { parseSlashInput } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
 import pkg from "../../package.json" with { type: "json" };
 
+const FALLBACK_FOOTER_HEIGHT = 4;
+
 const App = () => {
   /** 配置是否就绪：null 检查中 / false 需引导 / true 已就绪 */
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const { columns, rows } = useWindowSize();
+  const footerRef = useRef<DOMElement | null>(null);
+  const [footerHeight, setFooterHeight] = useState(FALLBACK_FOOTER_HEIGHT);
   /** 退出流程：isExiting 供其他组件消费，requestExit 触发退出 */
-  const { isExiting } = useExit();
+  const { isExiting, requestExit } = useExit({ captureInput: configured !== true });
   const [inputHistory, setInputHistory] = useState<readonly string[]>([]);
   /** 聊天状态与操作 */
   const {
@@ -31,6 +41,21 @@ const App = () => {
   useEffect(() => {
     setConfigured(hasConfig());
   }, []);
+
+  useLayoutEffect(() => {
+    if (footerRef.current) {
+      setFooterHeight(measureElement(footerRef.current).height);
+    }
+  });
+
+  const screenWidth = columns || process.stdout.columns || 80;
+  const screenHeight = rows || process.stdout.rows || 24;
+  const inputColumns = getInputColumns(screenWidth);
+  const maxVisibleInputLines = getMaxVisibleInputLines(screenHeight);
+  const transcriptHeight = Math.max(
+    1,
+    screenHeight - footerHeight,
+  );
 
   const handleSubmit = (text: string) => {
     // 用户提交的内容
@@ -57,6 +82,43 @@ const App = () => {
     sendMessage(text);
   };
 
+  const inputController = useInputBoxController({
+    onSubmit: handleSubmit,
+    inputHistory,
+    inputColumns,
+    disabled: configured !== true || isStreaming,
+    isExiting,
+  });
+  const config = configured === true ? getConfig() : null;
+  const transcriptController = useTranscriptViewportController({
+    header: config
+      ? {
+          version: pkg.version,
+          model: config.model,
+          thinking: config.thinking,
+          reasoningEffort: config.reasoningEffort,
+          path: process.cwd(),
+        }
+      : undefined,
+    entries,
+    streamingReasoning: isStreaming ? streamingReasoning : "",
+    streamingAssistantTurn: isStreaming ? streamingAssistantTurn : null,
+    width: screenWidth,
+    height: transcriptHeight,
+  });
+
+  useChatInputRouter({
+    enabled: configured === true && !isExiting,
+    mouseTrackingEnabled: isStreaming,
+    isStreaming,
+    isTranscriptPinnedToBottom: transcriptController.isPinnedToBottom,
+    wheelRows: transcriptController.wheelRows,
+    requestExit,
+    scroll: transcriptController.scroll,
+    handleInput: inputController.handleInput,
+    handlePaste: inputController.handlePaste,
+  });
+
   if (configured === null) {
     return (
       <Box padding={1}>
@@ -69,44 +131,54 @@ const App = () => {
     return <SetupWizard onComplete={() => setConfigured(true)} isExiting={isExiting} />;
   }
 
-  const config = getConfig();
+  if (!config) {
+    return null;
+  }
+
   const contextUsageView = selectContextUsageView(contextUsage, config.model);
 
   return (
-    <Box flexDirection="column">
-      {/* Header + 历史消息统一放进 <Static>：只渲染一次，之后增量追加，不参与实时区整树重绘 */}
-      <MessageList
-        entries={entries}
-        version={pkg.version}
-        model={config.model}
-        thinking={config.thinking}
-        reasoningEffort={config.reasoningEffort}
+    <Box flexDirection="column" width={screenWidth} height={screenHeight}>
+      <TranscriptViewport
+        height={transcriptController.height}
+        visibleRows={transcriptController.visibleRows}
+        showScrollHint={transcriptController.showScrollHint}
       />
 
-      {/* 实时区：流式中持续变化的内容 + 输入框 + 帮助栏 */}
-      {isStreaming && streamingReasoning && (
-        <MessageRow entry={{ role: "thinking", content: streamingReasoning }} />
-      )}
-      {isStreaming && streamingAssistantTurn && (
-        <MessageRow entry={streamingAssistantTurn} />
-      )}
+      <Box ref={footerRef} flexDirection="column">
+        <InputBox
+          view={inputController.view}
+          screenWidth={screenWidth}
+          inputColumns={inputColumns}
+          maxVisibleLines={maxVisibleInputLines}
+          disabled={isStreaming}
+          isExiting={isExiting}
+        />
 
-      <InputBox
-        onSubmit={handleSubmit}
-        inputHistory={inputHistory}
-        disabled={isStreaming}
-        isExiting={isExiting}
-      />
-
-      <Box paddingX={1} >
-        {contextUsageView && (
-          <>
-            <Text color="gray" dimColor> | </Text>
-            <Text color={contextUsageView.color} dimColor={contextUsageView.color === "gray"}>
-              {contextUsageView.text}
-            </Text>
-          </>
-        )}
+        <Box paddingX={1} height={1}>
+          {contextUsageView ? (
+            <>
+              {contextUsageView.bar ? (
+                <>
+                  <Text color="gray" dimColor>{contextUsageView.text} </Text>
+                  <Text backgroundColor={contextUsageView.bar.usedBackgroundColor}>
+                    {contextUsageView.bar.used}
+                  </Text>
+                  <Text backgroundColor={contextUsageView.bar.unusedBackgroundColor}>
+                    {contextUsageView.bar.unused}
+                  </Text>
+                  <Text color="gray" dimColor>{` ${contextUsageView.bar.suffix}`}</Text>
+                </>
+              ) : (
+                <Text color={contextUsageView.color} dimColor={contextUsageView.color === "gray"}>
+                  {contextUsageView.text}
+                </Text>
+              )}
+            </>
+          ) : (
+            <Text> </Text>
+          )}
+        </Box>
       </Box>
     </Box>
   );

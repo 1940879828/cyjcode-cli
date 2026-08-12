@@ -1,9 +1,14 @@
 import type { TokenUsage } from "../llm/types.js";
 
-const CONTEXT_BAR_WIDTH = 10;
+const CONTEXT_BAR_WIDTH = 15;
+const CONTEXT_BAR_CELL = " ";
+const CONTEXT_BAR_USED_FALLBACK_CELL = "█";
+const CONTEXT_BAR_UNUSED_FALLBACK_CELL = "░";
 const DEFAULT_CONTEXT_WINDOW = 256 * 1024;
 const DEEPSEEK_V4_CONTEXT_WINDOW = 1024 * 1024;
 const DEEPSEEK_V4_MODELS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"]);
+const CURSOR_BLUE = "#55A8E8";
+const BAR_UNUSED_BACKGROUND = "#2A2F36";
 
 export type ContextUsageState =
   | { status: "idle" }
@@ -14,7 +19,16 @@ export type ContextUsageState =
 export type ContextUsageView = {
   text: string;
   color: "gray" | "yellow" | "red";
+  bar?: ContextUsageBarView;
 };
+
+export interface ContextUsageBarView {
+  used: string;
+  unused: string;
+  usedBackgroundColor: string;
+  unusedBackgroundColor: string;
+  suffix: string;
+}
 
 export function getContextWindow(model: string): number {
   return DEEPSEEK_V4_MODELS.has(model.trim())
@@ -39,6 +53,14 @@ export function formatContextUsage(
   promptTokens: number,
   contextWindow: number,
 ): string {
+  const bar = formatContextUsageBar(promptTokens, contextWindow);
+  return `${toFallbackBar(bar)} ${bar.suffix}`;
+}
+
+export function formatContextUsageBar(
+  promptTokens: number,
+  contextWindow: number,
+): ContextUsageBarView {
   const safePromptTokens = Number.isFinite(promptTokens)
     ? Math.max(0, promptTokens)
     : 0;
@@ -47,10 +69,19 @@ export function formatContextUsage(
     : 0;
   const cappedRatio = Math.min(1, ratio);
   const filledBlocks = Math.round(cappedRatio * CONTEXT_BAR_WIDTH);
-  const bar = `${"|".repeat(filledBlocks)}${".".repeat(CONTEXT_BAR_WIDTH - filledBlocks)}`;
   const percent = Math.min(100, ratio * 100).toFixed(1);
 
-  return `${bar} ${formatTokenCount(safePromptTokens)}/${formatTokenCount(contextWindow)} ${percent}%`;
+  return {
+    used: CONTEXT_BAR_CELL.repeat(filledBlocks),
+    unused: CONTEXT_BAR_CELL.repeat(CONTEXT_BAR_WIDTH - filledBlocks),
+    usedBackgroundColor: CURSOR_BLUE,
+    unusedBackgroundColor: BAR_UNUSED_BACKGROUND,
+    suffix: `${formatTokenCount(safePromptTokens)}/${formatTokenCount(contextWindow)} ${percent}%`,
+  };
+}
+
+function toFallbackBar(bar: ContextUsageBarView): string {
+  return `${CONTEXT_BAR_USED_FALLBACK_CELL.repeat(bar.used.length)}${CONTEXT_BAR_UNUSED_FALLBACK_CELL.repeat(bar.unused.length)}`;
 }
 
 export function selectContextUsageView(
@@ -69,9 +100,11 @@ export function selectContextUsageView(
 
   const contextWindow = getContextWindow(model);
   const ratio = state.usage.promptTokens / contextWindow;
+  const bar = formatContextUsageBar(state.usage.promptTokens, contextWindow);
   return {
-    text: `上下文 ${formatContextUsage(state.usage.promptTokens, contextWindow)}`,
+    text: "上下文",
     color: getUsageColor(ratio),
+    bar,
   };
 }
 

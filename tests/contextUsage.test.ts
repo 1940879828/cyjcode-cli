@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   formatContextUsage,
+  formatContextUsageBar,
   formatTokenCount,
   getContextWindow,
   selectContextUsageView,
@@ -14,11 +15,21 @@ test("formatTokenCount uses binary K and M units", () => {
   assert.equal(formatTokenCount(1024 * 1024), "1M");
 });
 
-test("formatContextUsage renders prompt tokens with a ten-cell ascii bar", () => {
-  assert.equal(formatContextUsage(0, 1000), ".......... 0/1000 0.0%");
-  assert.equal(formatContextUsage(200, 1000), "||........ 200/1000 20.0%");
-  assert.equal(formatContextUsage(750, 1000), "||||||||.. 750/1000 75.0%");
-  assert.equal(formatContextUsage(1200, 1000), "|||||||||| 1.2K/1000 100.0%");
+test("formatContextUsage renders prompt tokens with a dense fallback bar", () => {
+  assert.equal(formatContextUsage(0, 1000), "░░░░░░░░░░░░░░░ 0/1000 0.0%");
+  assert.equal(formatContextUsage(200, 1000), "███░░░░░░░░░░░░ 200/1000 20.0%");
+  assert.equal(formatContextUsage(750, 1000), "███████████░░░░ 750/1000 75.0%");
+  assert.equal(formatContextUsage(1200, 1000), "███████████████ 1.2K/1000 100.0%");
+});
+
+test("formatContextUsageBar separates used and unused color-block segments", () => {
+  assert.deepEqual(formatContextUsageBar(200, 1000), {
+    used: "   ",
+    unused: "            ",
+    usedBackgroundColor: "#55A8E8",
+    unusedBackgroundColor: "#2A2F36",
+    suffix: "200/1000 20.0%",
+  });
 });
 
 test("getContextWindow follows DeepSeek V4 and default model windows", () => {
@@ -42,6 +53,16 @@ test("selectContextUsageView uses promptTokens for context capacity", () => {
         totalTokens: 850,
       },
     }, "custom"),
-    { text: "上下文 .......... 750/256K 0.3%", color: "gray" },
+    {
+      text: "上下文",
+      color: "gray",
+      bar: {
+        used: "",
+        unused: "               ",
+        usedBackgroundColor: "#55A8E8",
+        unusedBackgroundColor: "#2A2F36",
+        suffix: "750/256K 0.3%",
+      },
+    },
   );
 });

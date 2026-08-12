@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { stripMouseInput } from "../src/ui/hooks/useChatInputRouter.js";
 import {
   appendInputHistory,
   createInputBoxState,
@@ -568,4 +569,11 @@ test("renders wrapped text, with the cursor as a reversed char when shown", () =
     selectInputBoxView(state, layout, true).renderedText,
     "abcd\n ef\u001B[38;2;85;168;232m\u001B[7m \u001B[27m\u001B[39m",
   );
+});
+
+test("stripMouseInput removes SGR mouse events with and without escape prefix", () => {
+  assert.equal(stripMouseInput("\u001b[<64;18;22M"), "");
+  assert.equal(stripMouseInput("\u001b[<64;18;22;1M"), "");
+  assert.equal(stripMouseInput("<0;18;22M<0;18;22m"), "");
+  assert.equal(stripMouseInput("hello<65;22;8M"), "hello");
 });

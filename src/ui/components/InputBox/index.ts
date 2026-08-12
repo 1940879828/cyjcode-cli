@@ -1,1 +1,1 @@
-export { default } from "./InputBox.js";
+export { default, getInputColumns, getMaxVisibleInputLines } from "./InputBox.js";

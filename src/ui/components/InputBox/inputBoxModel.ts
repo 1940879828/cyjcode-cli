@@ -103,6 +103,8 @@ export type InputBoxCommand =
 export interface InputBoxView {
   // 要显示在屏幕上的文本（已按终端宽度换行处理，光标以反色字符内嵌）
   renderedText: string;
+  // 光标所在的视觉行，用于 UI 层裁剪多行输入时保留光标附近内容
+  cursorLine: number;
 }
 
 export interface InputBoxModelContext {
@@ -289,6 +291,7 @@ export function selectInputBoxView(
     renderedText: showCursor
       ? cursor.renderWithCursor(" ", CURSOR_FG_BLUE)
       : cursor.getRenderedText(),
+    cursorLine: cursor.getPosition().line,
   };
 }
 

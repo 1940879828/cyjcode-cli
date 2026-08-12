@@ -14,16 +14,19 @@ import { setRecordPath, setMockPath } from "./devmock/index.js";
  */
 async function renderWithCleanup(
   element: React.ReactElement,
-  options: { exitOnCtrlC?: boolean } = {},
+  options: { exitOnCtrlC?: boolean; alternateScreen?: boolean } = {},
 ) {
   const { waitUntilExit } = render(element, {
-    alternateScreen: false,
+    alternateScreen: options.alternateScreen ?? false,
     exitOnCtrlC: options.exitOnCtrlC ?? true,
   });
   await waitUntilExit();
 }
 
-function startInk(element: React.ReactElement, options: { exitOnCtrlC?: boolean } = {}) {
+function startInk(
+  element: React.ReactElement,
+  options: { exitOnCtrlC?: boolean; alternateScreen?: boolean } = {},
+) {
   void renderWithCleanup(element, options).catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
@@ -52,7 +55,7 @@ yargs(hideBin(process.argv))
       const mockPath = argv.mock as string | undefined;
       if (recordPath) setRecordPath(recordPath);
       if (mockPath) setMockPath(mockPath);
-      startInk(React.createElement(App), { exitOnCtrlC: false });
+      startInk(React.createElement(App), { exitOnCtrlC: false, alternateScreen: true });
     }
   )
   .command(
