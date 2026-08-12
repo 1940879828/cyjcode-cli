@@ -20,7 +20,7 @@ const App = () => {
   const {
     entries,
     isStreaming,
-    streamingText,
+    streamingAssistantTurn,
     streamingReasoning,
     contextUsage,
     sendMessage,
@@ -87,8 +87,8 @@ const App = () => {
       {isStreaming && streamingReasoning && (
         <MessageRow entry={{ role: "thinking", content: streamingReasoning }} />
       )}
-      {isStreaming && streamingText && (
-        <MessageRow entry={{ role: "assistant", content: streamingText }} />
+      {isStreaming && streamingAssistantTurn && (
+        <MessageRow entry={streamingAssistantTurn} />
       )}
 
       <InputBox

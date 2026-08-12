@@ -1,5 +1,6 @@
 import { Box, Static, Text } from "ink";
-import type { ChatEntry } from "../../hooks/index.js";
+import type { AssistantTurn } from "../../assistantTurn.js";
+import type { ChatEntry, TextChatEntry } from "../../hooks/index.js";
 import Header from "../Header/index.js";
 
 const MAX_VISIBLE_MESSAGES = 20;
@@ -13,10 +14,9 @@ interface Props {
   reasoningEffort: string;
 }
 
-export type MessageRowEntry = Pick<
-  ChatEntry,
-  "role" | "content" | "toolCall" | "toolResult"
->;
+export type MessageRowEntry =
+  | AssistantTurn
+  | Pick<TextChatEntry, "role" | "content" | "toolCall" | "toolResult">;
 
 // Ink 只支持单个 <Static>，且 items 只追加不变。
 // 因此把"顶部 Header + 历史消息"合并成一个静态流：Header 是首项，历史消息随后追加。
@@ -61,6 +61,9 @@ const ROLE_LABELS: Record<ChatEntry["role"], string> = {
   tool_result: "Result",
   error: "Error",
 };
+
+const isAssistantTurn = (entry: MessageRowEntry): entry is AssistantTurn =>
+  entry.role === "assistant";
 
 const MessageList = ({ entries, version, model, thinking, reasoningEffort }: Props) => {
   const visible = entries.length > MAX_VISIBLE_MESSAGES
@@ -125,6 +128,9 @@ export const MessageRow = ({ entry }: { entry: MessageRowEntry }) => (
 );
 
 const renderContent = (entry: MessageRowEntry) => {
+  if (isAssistantTurn(entry)) {
+    return <AssistantTurnContent turn={entry} />;
+  }
   if (entry.role === "tool_result" && entry.toolResult) {
     return <ToolResultContent toolResult={entry.toolResult} content={entry.content} />;
   }
@@ -135,11 +141,36 @@ const renderContent = (entry: MessageRowEntry) => {
   );
 };
 
+const AssistantTurnContent = ({ turn }: { turn: AssistantTurn }) => (
+  <Box flexDirection="column">
+    {turn.parts.map((part) => (
+      <Box key={part.id} marginLeft={part.kind === "text" ? 0 : 2}>
+        <Text color={getAssistantPartColor(part.kind)}>
+          {part.content}
+        </Text>
+      </Box>
+    ))}
+    {turn.activeText && (
+      <Text color={ROLE_COLORS.assistant}>{turn.activeText}</Text>
+    )}
+  </Box>
+);
+
+const getAssistantPartColor = (kind: AssistantTurn["parts"][number]["kind"]): string | undefined => {
+  if (kind === "tool") {
+    return ROLE_COLORS.tool_call;
+  }
+  if (kind === "error") {
+    return ROLE_COLORS.error;
+  }
+  return ROLE_COLORS.assistant;
+};
+
 const ToolResultContent = ({
   toolResult,
   content,
 }: {
-  toolResult: ChatEntry["toolResult"];
+  toolResult: TextChatEntry["toolResult"];
   content: string;
 }) => (
   <Box flexDirection="column">

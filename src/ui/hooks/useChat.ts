@@ -3,6 +3,14 @@ import { runAgentLoop } from "../../agent/loop.js";
 import { clearHistory } from "../../agent/history.js";
 import type { ToolResult } from "../../tools/types.js";
 import { getRecordPath, recordAgentLoop, getMockPath, mockAgentLoop } from "../../devmock/index.js";
+import {
+  appendAssistantPart,
+  appendAssistantTextDelta,
+  createAssistantTurn,
+  finalizeAssistantTurn,
+  hasAssistantTurnContent,
+} from "../assistantTurn.js";
+import type { AssistantTurn } from "../assistantTurn.js";
 import type { ContextUsageState } from "../contextUsage.js";
 import { formatToolDisplay, formatToolErrorDisplay } from "../toolDisplay.js";
 
@@ -18,23 +26,19 @@ export interface ToolResultEntry {
   result: ToolResult;
 }
 
-/**
- * 单条消息 
- */
-export interface ChatEntry {
+export interface TextChatEntry {
   // 全局递增唯一 ID
   id: string;
   /**
    * 角色
    * system 系统级消息（如 /help 输出），不来自 LLM、用户输入
    * user 用户发送的问题
-   * assistant 模型的最终文本回复
    * thinking 模型的推理过程
    * tool_call 工具执行摘要，不展示大段参数或结果
    * tool_result 保留给旧消息类型兼容
    * error 错误信息（LLM 报错、工具执行失败、超过轮数限制等）
    */
-  role: "system" | "user" | "assistant" | "thinking" | "tool_call" | "tool_result" | "error";
+  role: "system" | "user" | "thinking" | "tool_call" | "tool_result" | "error";
   // 消息的文本内容
   content: string;
   // 仅内部兼容旧渲染路径；新工具摘要直接使用 content
@@ -45,15 +49,20 @@ export interface ChatEntry {
   timestamp: number;
 }
 
+/**
+ * 单条消息。assistant 使用分组结构，按顺序容纳文本、工具摘要和错误。
+ */
+export type ChatEntry = TextChatEntry | AssistantTurn;
+
 let entryCounter = 0;
 const nextId = (): string => `msg_${++entryCounter}`;
 
 /** 创建一条标准的 ChatEntry */
 const makeEntry = (
-  role: ChatEntry["role"],
+  role: TextChatEntry["role"],
   content: string,
-  extra?: Partial<Pick<ChatEntry, "toolCall" | "toolResult">>,
-): ChatEntry => ({
+  extra?: Partial<Pick<TextChatEntry, "toolCall" | "toolResult">>,
+): TextChatEntry => ({
   id: nextId(),
   role,
   content,
@@ -64,16 +73,16 @@ const makeEntry = (
 export function useChat() {
   /**
    * 历史记录 - 持久消息列表
-   * 存已完成的消息（user、assistant、tool_call 等），渲染时一次性画出
+   * 存已完成的消息（user、assistant turn 等），渲染时一次性画出
    */
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   /**
    * 实现 LLM 流式输出时的实时渲染
-   * - 生成过程中的thinking和ai回复
+   * - 生成过程中的 thinking 和 assistant turn
    */
-  const [streamingText, setStreamingText] = useState("");
   const [streamingReasoning, setStreamingReasoning] = useState("");
+  const [streamingAssistantTurn, setStreamingAssistantTurn] = useState<AssistantTurn | null>(null);
   const [contextUsage, setContextUsage] = useState<ContextUsageState>({
     status: "idle",
   });
@@ -89,8 +98,8 @@ export function useChat() {
    * @param text 
    */
   const consumeEvents = async (text: string) => {
-    let buffer = "";
     let reasoning = "";
+    let currentAssistantTurn: AssistantTurn | null = null;
     const pendingToolCalls = new Map<string, ToolCallEntry>();
     const recordPath = getRecordPath();
     const mockPath = getMockPath();
@@ -110,8 +119,11 @@ export function useChat() {
 
         // 瞬态状态，实时打字效果 ai回复
         case "text_delta":
-          buffer += event.content;
-          setStreamingText(buffer);
+          currentAssistantTurn = appendAssistantTextDelta(
+            currentAssistantTurn ?? createAssistantTurn(nextId(), Date.now()),
+            event.content,
+          );
+          setStreamingAssistantTurn(currentAssistantTurn);
           break;
 
         // 工具结果会携带更多 metadata，UI 等结果回来后只显示一行摘要。
@@ -136,12 +148,19 @@ export function useChat() {
             arguments: toolCall.arguments,
             result: event.result,
           };
-          append(
-            makeEntry(
-              event.result.success ? "tool_call" : "error",
-              event.result.success ? formatToolDisplay(context) : formatToolErrorDisplay(context),
-            ),
+          const content = event.result.success
+            ? formatToolDisplay(context)
+            : formatToolErrorDisplay(context);
+          currentAssistantTurn = appendAssistantPart(
+            currentAssistantTurn ?? createAssistantTurn(nextId(), Date.now()),
+            nextId(),
+            {
+              id: nextId(),
+              kind: event.result.success ? "tool" : "error",
+              content,
+            },
           );
+          setStreamingAssistantTurn(currentAssistantTurn);
           break;
         }
 
@@ -158,12 +177,33 @@ export function useChat() {
           if (reasoning) {
             append(makeEntry("thinking", reasoning));
           }
-          append(makeEntry("assistant", event.fullText || buffer));
-          setStreamingText("");
+          currentAssistantTurn = finalizeAssistantTurn(
+            currentAssistantTurn ?? createAssistantTurn(nextId(), Date.now()),
+            nextId(),
+            event.fullText || "（无回复内容）",
+          );
+          append(currentAssistantTurn);
+          currentAssistantTurn = null;
+          setStreamingAssistantTurn(null);
           break;
 
         case "error":
-          append(makeEntry("error", `错误: ${event.error}`));
+          if (currentAssistantTurn && hasAssistantTurnContent(currentAssistantTurn)) {
+            currentAssistantTurn = appendAssistantPart(
+              currentAssistantTurn,
+              nextId(),
+              {
+                id: nextId(),
+                kind: "error",
+                content: `错误: ${event.error}`,
+              },
+            );
+            append(currentAssistantTurn);
+            currentAssistantTurn = null;
+            setStreamingAssistantTurn(null);
+          } else {
+            append(makeEntry("error", `错误: ${event.error}`));
+          }
           setContextUsage((current) =>
             current.status === "loading" ? { status: "error" } : current,
           );
@@ -179,8 +219,8 @@ export function useChat() {
     append(makeEntry("user", text));
     // 锁定输入框
     setIsStreaming(true);
-    setStreamingText("");
     setStreamingReasoning("");
+    setStreamingAssistantTurn(null);
     setContextUsage({ status: "loading" });
 
     try {
@@ -193,8 +233,8 @@ export function useChat() {
       );
     } finally {
       setIsStreaming(false);
-      setStreamingText("");
       setStreamingReasoning("");
+      setStreamingAssistantTurn(null);
     }
   };
 
@@ -202,6 +242,7 @@ export function useChat() {
   const clearChat = () => {
     setEntries([]);
     clearHistory();
+    setStreamingAssistantTurn(null);
     setContextUsage({ status: "idle" });
   };
 
@@ -212,7 +253,7 @@ export function useChat() {
   return {
     entries,
     isStreaming,
-    streamingText,
+    streamingAssistantTurn,
     streamingReasoning,
     contextUsage,
     sendMessage,
