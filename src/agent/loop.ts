@@ -5,6 +5,7 @@ import type { ToolResult } from "../tools/types.js";
 import type { AgentEvent } from "./types.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { addMessage, getMessages, appendToolResult } from "./history.js";
+import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
 import { log } from "../utils/logger.js";
 
 const MAX_ROUNDS = 10;
@@ -119,6 +120,8 @@ export async function* runAgentLoop(
 
   // 埋点: session.start
   log("session.start", { sessionId, userMessage });
+
+  appendProjectInstructionsToHistory();
 
   // 回显并记录用户输入
   yield { type: "user_message", content: userMessage };

@@ -10,6 +10,10 @@ export function getMessages(): ChatMessage[] {
   return [...messages];
 }
 
+export function isHistoryEmpty(): boolean {
+  return messages.length === 0;
+}
+
 export function appendToolResult(
   toolCallId: string,
   toolName: string,
