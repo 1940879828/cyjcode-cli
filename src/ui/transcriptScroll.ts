@@ -11,6 +11,13 @@ export type TranscriptScrollAction =
   | { type: "top" }
   | { type: "bottom" };
 
+interface NextOffsetInput {
+  offsetFromBottom: number;
+  action: TranscriptScrollAction;
+  page: number;
+  maxOffset: number;
+}
+
 export const createTranscriptScrollState = (
   totalRows = 0,
 ): TranscriptScrollState => ({
@@ -45,7 +52,7 @@ export const scrollTranscript = (
 ): TranscriptScrollState => {
   const maxOffset = getMaxOffset(state.totalRows, viewportRows);
   const page = Math.max(1, viewportRows - 1);
-  const nextOffset = getNextOffset(state.offsetFromBottom, action, page, maxOffset);
+  const nextOffset = getNextOffset({ offsetFromBottom: state.offsetFromBottom, action, page, maxOffset });
 
   return {
     ...state,
@@ -89,12 +96,8 @@ export const getMaxOffset = (totalRows: number, viewportRows: number): number =>
 const clampOffset = (offset: number, maxOffset: number): number =>
   Math.min(Math.max(0, offset), maxOffset);
 
-const getNextOffset = (
-  offsetFromBottom: number,
-  action: TranscriptScrollAction,
-  page: number,
-  maxOffset: number,
-): number => {
+const getNextOffset = (input: NextOffsetInput): number => {
+  const { offsetFromBottom, action, page, maxOffset } = input;
   switch (action.type) {
     case "lineUp":
       return offsetFromBottom + (action.amount ?? 1);

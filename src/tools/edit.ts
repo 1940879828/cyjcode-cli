@@ -22,6 +22,28 @@ interface Match {
   endLine: number;
 }
 
+interface FindMatchesInput {
+  scopedText: string;
+  oldString: string;
+  fullContent: string;
+  scopeStart: number;
+}
+
+interface ApplyMatchesInput {
+  scopedText: string;
+  matches: readonly Match[];
+  scopeStart: number;
+  newString: string;
+  replaceAll: boolean;
+}
+
+interface CandidateInput {
+  filePath: string;
+  metadata: ReturnType<typeof readTextFileMetadata>;
+  lines: string[];
+  match: Match;
+}
+
 const edit: Tool = {
   name: "edit",
   description:
@@ -108,7 +130,12 @@ const edit: Tool = {
       const scopedText = metadata.content.slice(scope.start, scope.end);
       const replacementOldString = normalizeLineEndings(oldString, metadata.lineEndings);
       const replacementNewString = normalizeLineEndings(newString, metadata.lineEndings);
-      const matches = findMatches(scopedText, replacementOldString, metadata.content, scope.start);
+      const matches = findMatches({
+        scopedText,
+        oldString: replacementOldString,
+        fullContent: metadata.content,
+        scopeStart: scope.start,
+      });
 
       if (matches.length === 0) {
         return {
@@ -152,7 +179,13 @@ const edit: Tool = {
         };
       }
 
-      const editedScope = applyMatches(scopedText, matches, scope.start, replacementNewString, replaceAll);
+      const editedScope = applyMatches({
+        scopedText,
+        matches,
+        scopeStart: scope.start,
+        newString: replacementNewString,
+        replaceAll,
+      });
       const updated = normalizeLineEndings(
         `${metadata.content.slice(0, scope.start)}${editedScope}${metadata.content.slice(scope.end)}`,
         metadata.lineEndings,
@@ -162,13 +195,13 @@ const edit: Tool = {
       const freshMetadata = readTextFileMetadata(snippet.filePath);
       rememberFileSnapshot(snippet.filePath, freshMetadata);
       const freshScope = lineRangeToOffsets(freshMetadata.content, snippet.startLine, snippet.endLine);
-      const freshSnippet = createSnippet(
-        snippet.filePath,
-        snippet.startLine,
-        snippet.endLine,
-        freshMetadata.content.slice(freshScope.start, freshScope.end),
-        freshMetadata,
-      );
+      const freshSnippet = createSnippet({
+        filePath: snippet.filePath,
+        startLine: snippet.startLine,
+        endLine: snippet.endLine,
+        content: freshMetadata.content.slice(freshScope.start, freshScope.end),
+        metadata: freshMetadata,
+      });
 
       return {
         success: true,
@@ -207,31 +240,32 @@ function parseExpectedOccurrences(
   return { success: true, value: numericValue };
 }
 
-function findMatches(scopedText: string, oldString: string, fullContent: string, scopeStart: number): Match[] {
-  if (!oldString) {
-    return [];
-  }
+function findMatches(input: FindMatchesInput): Match[] {
+  if (!input.oldString) return [];
 
   const matches: Match[] = [];
   let searchFrom = 0;
 
-  while (searchFrom <= scopedText.length) {
-    const found = scopedText.indexOf(oldString, searchFrom);
-    if (found === -1) {
-      break;
-    }
-    const absoluteStart = scopeStart + found;
-    const absoluteEnd = absoluteStart + oldString.length;
-    matches.push({
-      start: absoluteStart,
-      end: absoluteEnd,
-      startLine: offsetToLine(fullContent, absoluteStart),
-      endLine: offsetToLine(fullContent, Math.max(absoluteStart, absoluteEnd - 1)),
-    });
-    searchFrom = found + oldString.length;
+  while (searchFrom <= input.scopedText.length) {
+    const found = input.scopedText.indexOf(input.oldString, searchFrom);
+    if (found === -1) break;
+
+    matches.push(buildMatch(input, found));
+    searchFrom = found + input.oldString.length;
   }
 
   return matches;
+}
+
+function buildMatch(input: FindMatchesInput, found: number): Match {
+  const absoluteStart = input.scopeStart + found;
+  const absoluteEnd = absoluteStart + input.oldString.length;
+  return {
+    start: absoluteStart,
+    end: absoluteEnd,
+    startLine: offsetToLine(input.fullContent, absoluteStart),
+    endLine: offsetToLine(input.fullContent, Math.max(absoluteStart, absoluteEnd - 1)),
+  };
 }
 
 function offsetToLine(content: string, offset: number): number {
@@ -244,22 +278,16 @@ function offsetToLine(content: string, offset: number): number {
   return line;
 }
 
-function applyMatches(
-  scopedText: string,
-  matches: readonly Match[],
-  scopeStart: number,
-  newString: string,
-  replaceAll: boolean,
-): string {
-  const selectedMatches = replaceAll ? matches : matches.slice(0, 1);
+function applyMatches(input: ApplyMatchesInput): string {
+  const selectedMatches = input.replaceAll ? input.matches : input.matches.slice(0, 1);
   let result = "";
-  let cursor = scopeStart;
+  let cursor = input.scopeStart;
   for (const match of selectedMatches) {
-    result += scopedText.slice(cursor - scopeStart, match.start - scopeStart);
-    result += newString;
+    result += input.scopedText.slice(cursor - input.scopeStart, match.start - input.scopeStart);
+    result += input.newString;
     cursor = match.end;
   }
-  result += scopedText.slice(cursor - scopeStart);
+  result += input.scopedText.slice(cursor - input.scopeStart);
   return result;
 }
 
@@ -269,18 +297,24 @@ function buildCandidateMetadata(
   matches: readonly Match[],
 ): Array<Record<string, unknown>> {
   const lines = splitLines(metadata.content);
-  return matches.slice(0, 5).map((match) => {
-    const startLine = Math.max(1, match.startLine - 2);
-    const endLine = Math.min(lines.length, match.endLine + 2);
-    const selectedLines = lines.slice(startLine - 1, endLine);
-    const snippet = createSnippet(filePath, startLine, endLine, selectedLines.join("\n"), metadata);
-    return {
-      snippetId: snippet.id,
-      startLine,
-      endLine,
-      preview: formatWithLineNumbers(selectedLines, startLine),
-    };
+  return matches
+    .slice(0, 5)
+    .map((match) => buildCandidate({ filePath, metadata, lines, match }));
+}
+
+function buildCandidate(input: CandidateInput): Record<string, unknown> {
+  const startLine = Math.max(1, input.match.startLine - 2);
+  const endLine = Math.min(input.lines.length, input.match.endLine + 2);
+  const selectedLines = input.lines.slice(startLine - 1, endLine);
+  const snippet = createSnippet({
+    filePath: input.filePath,
+    startLine,
+    endLine,
+    content: selectedLines.join("\n"),
+    metadata: input.metadata,
   });
+
+  return { snippetId: snippet.id, startLine, endLine, preview: formatWithLineNumbers(selectedLines, startLine) };
 }
 
 function buildScopeMetadata(snippet: { id: string; filePath: string; startLine: number; endLine: number }): Record<string, unknown> {

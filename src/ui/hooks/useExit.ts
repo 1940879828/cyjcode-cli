@@ -1,4 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react";
 import { useApp, useInput } from "ink";
 
 interface UseExitOptions {
@@ -19,20 +26,35 @@ export function useExit({ captureInput = true }: UseExitOptions = {}) {
   const { exit, waitUntilRenderFlush } = useApp();
 
   const requestExit = () => {
-    if (exitingRef.current) return;
-    exitingRef.current = true;
-    setIsExiting(true);
+    requestExitOnce(exitingRef, setIsExiting);
   };
 
-  useInput(
-    (input, key) => {
-      if ((key.ctrl && input.toLowerCase() === "c") || input === "\u0003") {
-        requestExit();
-      }
-    },
-    { isActive: captureInput && !isExiting },
-  );
+  useExitInput(captureInput && !isExiting, requestExit);
+  useExitEffect(isExiting, waitUntilRenderFlush, exit);
 
+  return { isExiting, requestExit };
+}
+
+function requestExitOnce(
+  exitingRef: MutableRefObject<boolean>,
+  setIsExiting: Dispatch<SetStateAction<boolean>>,
+): void {
+  if (exitingRef.current) return;
+  exitingRef.current = true;
+  setIsExiting(true);
+}
+
+function useExitInput(isActive: boolean, requestExit: () => void): void {
+  useInput((input, key) => {
+    if ((key.ctrl && input.toLowerCase() === "c") || input === "\u0003") requestExit();
+  }, { isActive });
+}
+
+function useExitEffect(
+  isExiting: boolean,
+  waitUntilRenderFlush: () => Promise<void>,
+  exit: () => void,
+): void {
   useEffect(() => {
     if (!isExiting) return;
 
@@ -46,6 +68,4 @@ export function useExit({ captureInput = true }: UseExitOptions = {}) {
       cancelled = true;
     };
   }, [exit, isExiting, waitUntilRenderFlush]);
-
-  return { isExiting, requestExit };
 }

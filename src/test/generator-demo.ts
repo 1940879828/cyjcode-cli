@@ -23,6 +23,24 @@ type MockDelta = {
   tool_calls?: Array<{ index: number; function: { name?: string; arguments?: string } }>;
 };
 
+type AgentStreamEvent =
+  | { type: "text_delta"; content: string }
+  | { type: "tool_call_delta"; name?: string; args?: string }
+  | { type: "done" };
+
+type AgentLoopEvent = {
+  type: "text_delta" | "tool_start" | "tool_result" | "done";
+  content?: string;
+};
+
+type ToolCallDeltaEvent = Extract<AgentStreamEvent, { type: "tool_call_delta" }>;
+
+interface ToolCallAccumulator {
+  hasToolCall: boolean;
+  toolName: string;
+  toolArgs: string;
+}
+
 const mockChunks: Array<{ choices: Array<{ delta: MockDelta }> }> = [
   { choices: [{ delta: { content: "我来" } }] },
   { choices: [{ delta: { content: "帮你" } }] },
@@ -35,73 +53,87 @@ const mockChunks: Array<{ choices: Array<{ delta: MockDelta }> }> = [
 ];
 
 // ---- 1. LLM 客户端：封装 API 流 ----
-async function* agentStreamChat(): AsyncGenerator<
-  | { type: "text_delta"; content: string }
-  | { type: "tool_call_delta"; name?: string; args?: string }
-  | { type: "done" }
-> {
+async function* agentStreamChat(): AsyncGenerator<AgentStreamEvent> {
   for (const chunk of mockChunks) {
-    await new Promise((r) => setTimeout(r, 1000)); // 模拟网络延迟
-
+    await delay(1000);
     const delta = chunk.choices[0]?.delta;
-    if (!delta) continue;
-
-    if (delta.content) {
-      yield { type: "text_delta", content: delta.content };
-    }
-    if (delta.tool_calls) {
-      const tc = delta.tool_calls[0]!;
-      yield {
-        type: "tool_call_delta",
-        name: tc.function?.name || undefined,
-        args: tc.function?.arguments || undefined,
-      };
-    }
+    if (delta) yield* createStreamEvents(delta);
   }
   yield { type: "done" };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createStreamEvents(delta: MockDelta): AgentStreamEvent[] {
+  const events: AgentStreamEvent[] = [];
+  if (delta.content) events.push({ type: "text_delta", content: delta.content });
+  if (delta.tool_calls) events.push(createToolCallDeltaEvent(delta.tool_calls[0]!));
+  return events;
+}
+
+function createToolCallDeltaEvent(
+  toolCall: { function: { name?: string; arguments?: string } },
+): ToolCallDeltaEvent {
+  return {
+    type: "tool_call_delta",
+    name: toolCall.function?.name || undefined,
+    args: toolCall.function?.arguments || undefined,
+  };
 }
 
 // ==========================================
 // 2. Agent 循环：这是 runAgentLoop() 的简化版
 // ==========================================
-async function* runAgentLoop(): AsyncGenerator<{
-  type: "text_delta" | "tool_start" | "tool_result" | "done";
-  content?: string;
-}> {
+async function* runAgentLoop(): AsyncGenerator<AgentLoopEvent> {
   const maxRounds = 3;
-  let round = 0;
-
-  while (round < maxRounds) {
-    round++;
-    console.log(`  --- Agent 循环第 ${round} 轮 ---`);
-
-    let hasToolCall = false;
-    let toolName = "";
-    let toolArgs = "";
-
-    for await (const event of agentStreamChat()) {
-      if (event.type === "text_delta") {
-        yield { type: "text_delta", content: event.content };
-      } else if (event.type === "tool_call_delta") {
-        hasToolCall = true;
-        // 流式拼接：第一片带 name，后续片只带 args 片段
-        if (event.name) toolName = event.name;
-        if (event.args) toolArgs += event.args;
-      } else if (event.type === "done") {
-        if (hasToolCall) {
-          yield { type: "tool_start", content: `${toolName}(${toolArgs})` };
-          const result = getWeather(JSON.parse(toolArgs).city);
-          yield { type: "tool_result", content: result };
-          // 真实项目中，工具结果会作为上下文传给下一轮 LLM 调用
-        }
-        yield { type: "done" };
-        break;
-      }
-    }
-
-    if (!hasToolCall) break;
-    break; // 演示目的：跑一轮就停
+  for (let round = 1; round <= maxRounds; round++) {
+    const hasToolCall = yield* runAgentRound(round);
+    if (!hasToolCall) return;
+    return; // 演示目的：跑一轮就停
   }
+}
+
+async function* runAgentRound(round: number): AsyncGenerator<AgentLoopEvent, boolean> {
+  console.log(`  --- Agent 循环第 ${round} 轮 ---`);
+  const toolCall = createToolCallAccumulator();
+
+  for await (const event of agentStreamChat()) {
+    if (event.type === "text_delta") {
+      yield { type: "text_delta", content: event.content };
+      continue;
+    }
+    if (event.type === "tool_call_delta") {
+      appendToolCallDelta(toolCall, event);
+      continue;
+    }
+    yield* finishAgentRound(toolCall);
+    return toolCall.hasToolCall;
+  }
+
+  return toolCall.hasToolCall;
+}
+
+function createToolCallAccumulator(): ToolCallAccumulator {
+  return { hasToolCall: false, toolName: "", toolArgs: "" };
+}
+
+function appendToolCallDelta(
+  toolCall: ToolCallAccumulator,
+  event: ToolCallDeltaEvent,
+): void {
+  toolCall.hasToolCall = true;
+  if (event.name) toolCall.toolName = event.name;
+  if (event.args) toolCall.toolArgs += event.args;
+}
+
+function* finishAgentRound(toolCall: ToolCallAccumulator): Generator<AgentLoopEvent> {
+  if (toolCall.hasToolCall) {
+    yield { type: "tool_start", content: `${toolCall.toolName}(${toolCall.toolArgs})` };
+    yield { type: "tool_result", content: getWeather(JSON.parse(toolCall.toolArgs).city) };
+  }
+  yield { type: "done" };
 }
 
 // ==========================================

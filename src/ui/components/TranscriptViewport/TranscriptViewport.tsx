@@ -45,6 +45,10 @@ interface TranscriptViewportProps {
   showScrollHint: boolean;
 }
 
+interface TranscriptRowViewProps {
+  row: TranscriptRow;
+}
+
 export const useTranscriptViewportController = ({
   header,
   entries,
@@ -65,7 +69,7 @@ export const useTranscriptViewportController = ({
   const [scrollState, setScrollState] = useState<TranscriptScrollState>(
     createTranscriptScrollState(rows.length),
   );
-  const renderState = getRenderScrollState(scrollState, rows.length, viewportHeight);
+  const renderState = getRenderScrollState({ state: scrollState, totalRows: rows.length, viewportHeight });
   const pinnedToBottom = isPinnedToBottom(renderState);
   const showScrollHint = !pinnedToBottom;
   const bodyHeight = getBodyHeight(viewportHeight, pinnedToBottom);
@@ -74,7 +78,7 @@ export const useTranscriptViewportController = ({
 
   useEffect(() => {
     setScrollState((current) => {
-      const next = getRenderScrollState(current, rows.length, viewportHeight);
+      const next = getRenderScrollState({ state: current, totalRows: rows.length, viewportHeight });
       return isSameScrollState(current, next) ? current : next;
     });
   }, [rows.length, viewportHeight]);
@@ -99,32 +103,32 @@ export const useTranscriptViewportController = ({
   };
 };
 
-const getRenderScrollState = (
-  state: TranscriptScrollState,
-  totalRows: number,
-  viewportHeight: number,
-): TranscriptScrollState => {
+const getRenderScrollState = ({
+  state,
+  totalRows,
+  viewportHeight,
+}: {
+  state: TranscriptScrollState;
+  totalRows: number;
+  viewportHeight: number;
+}): TranscriptScrollState => {
   const preliminaryBodyHeight = getBodyHeight(viewportHeight, isPinnedToBottom(state));
-  const preliminary = limitScrollHistory(
-    reconcileTranscriptScroll(
-      state,
-      totalRows,
-      preliminaryBodyHeight,
-    ),
-    preliminaryBodyHeight,
-  );
+  const preliminary = reconcileLimitedScroll(state, totalRows, preliminaryBodyHeight);
   const pinnedToBottom = isPinnedToBottom(preliminary);
   const bodyHeight = getBodyHeight(viewportHeight, pinnedToBottom);
 
-  return limitScrollHistory(
-    reconcileTranscriptScroll(
-      state,
-      totalRows,
-      bodyHeight,
-    ),
-    bodyHeight,
-  );
+  return reconcileLimitedScroll(state, totalRows, bodyHeight);
 };
+
+const reconcileLimitedScroll = (
+  state: TranscriptScrollState,
+  totalRows: number,
+  viewportRows: number,
+): TranscriptScrollState =>
+  limitScrollHistory(
+    reconcileTranscriptScroll(state, totalRows, viewportRows),
+    viewportRows,
+  );
 
 const limitScrollHistory = (
   state: TranscriptScrollState,
@@ -158,26 +162,7 @@ const TranscriptViewport = ({
   return (
     <Box flexDirection="column" height={height} overflow="hidden">
       {visibleRows.map((row) => (
-        <Text
-          key={row.id}
-          color={row.color}
-          backgroundColor={row.backgroundColor}
-          bold={row.bold}
-          dimColor={row.dimColor}
-        >
-          {row.segments && row.text
-            ? row.segments.map((segment, index) => (
-                <Text
-                  key={`${row.id}_segment_${index}`}
-                  color={segment.color}
-                  bold={segment.bold}
-                  dimColor={segment.dimColor}
-                >
-                  {segment.text}
-                </Text>
-              ))
-            : row.text || " "}
-        </Text>
+        <TranscriptRowView key={row.id} row={row} />
       ))}
       {showScrollHint && (
         <Text color="gray" dimColor>
@@ -187,6 +172,28 @@ const TranscriptViewport = ({
     </Box>
   );
 };
+
+const TranscriptRowView = ({ row }: TranscriptRowViewProps) => (
+  <Text
+    color={row.color}
+    backgroundColor={row.backgroundColor}
+    bold={row.bold}
+    dimColor={row.dimColor}
+  >
+    {row.segments && row.text
+      ? row.segments.map((segment, index) => (
+          <Text
+            key={`${row.id}_segment_${index}`}
+            color={segment.color}
+            bold={segment.bold}
+            dimColor={segment.dimColor}
+          >
+            {segment.text}
+          </Text>
+        ))
+      : row.text || " "}
+  </Text>
+);
 
 export default TranscriptViewport;
 export type { TranscriptRow };

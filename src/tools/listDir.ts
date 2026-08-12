@@ -47,6 +47,13 @@ interface ListDirArgs {
   resolvedPath: string;
 }
 
+interface DirectoryEntryContext {
+  dir: string;
+  prefix: string;
+  recursive: boolean;
+  entry: fs.Dirent;
+}
+
 function parseListDirArgs(
   args: Record<string, unknown>,
 ): { success: true; value: ListDirArgs } | { success: false; error: string } {
@@ -92,21 +99,16 @@ function listDirRecursive(
   recursive: boolean,
 ): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
-    formatDirectoryEntry(dir, prefix, recursive, entry),
+    formatDirectoryEntry({ dir, prefix, recursive, entry }),
   );
 }
 
-function formatDirectoryEntry(
-  dir: string,
-  prefix: string,
-  recursive: boolean,
-  entry: fs.Dirent,
-): string[] {
-  const fullPath = path.join(prefix, entry.name);
-  if (!entry.isDirectory()) return [fullPath];
+function formatDirectoryEntry(context: DirectoryEntryContext): string[] {
+  const fullPath = path.join(context.prefix, context.entry.name);
+  if (!context.entry.isDirectory()) return [fullPath];
 
-  const childEntries = recursive
-    ? listDirRecursive(path.join(dir, entry.name), fullPath, recursive)
+  const childEntries = context.recursive
+    ? listDirRecursive(path.join(context.dir, context.entry.name), fullPath, context.recursive)
     : [];
   return [`${fullPath}/`, ...childEntries];
 }

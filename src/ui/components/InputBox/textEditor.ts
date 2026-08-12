@@ -154,33 +154,9 @@ export class TextCursor {
   renderWithCursor(cursorChar = " ", fgCode = ""): string {
     const { line, column } = this.getPosition();
     return this.lines
-      .map((wrapped, index) => {
-        // 非光标所在行：保持原样（去掉行尾空格）
-        if (index !== line) return wrapped.text.trimEnd();
-        // 光标所在行：遍历字素累加宽度，定位光标落在哪个字符上
-        let width = 0;
-        let charIndex = 0;
-        let atCursor: string | null = null;
-        for (const part of graphemes(wrapped.text)) {
-          const nextWidth = width + stringWidth(part.segment);
-          if (nextWidth > column) {
-            atCursor = part.segment;
-            break;
-          }
-          width = nextWidth;
-          charIndex += part.segment.length;
-        }
-        // 光标落在某个字符上：反色该字符
-        if (atCursor !== null) {
-          return (
-            wrapped.text.slice(0, charIndex) +
-            invert(atCursor, fgCode) +
-            wrapped.text.slice(charIndex + atCursor.length)
-          ).trimEnd();
-        }
-        // 光标在行尾/空行：追加一个反色字符代表光标
-        return (wrapped.text + invert(cursorChar, fgCode)).trimEnd();
-      })
+      .map((wrapped, index) =>
+        renderCursorLine({ text: wrapped.text, index, line, column, cursorChar, fgCode }),
+      )
       .join("\n");
   }
 
@@ -515,4 +491,44 @@ export class TextCursor {
     }
     return this.text.length;
   }
+}
+
+interface CursorLineInput {
+  text: string;
+  index: number;
+  line: number;
+  column: number;
+  cursorChar: string;
+  fgCode: string;
+}
+
+interface CursorTarget {
+  charIndex: number;
+  segment: string;
+}
+
+function renderCursorLine(input: CursorLineInput): string {
+  if (input.index !== input.line) return input.text.trimEnd();
+  const target = findCursorTarget(input.text, input.column);
+  return target
+    ? renderInvertedTarget(input.text, target, input.fgCode)
+    : (input.text + invert(input.cursorChar, input.fgCode)).trimEnd();
+}
+
+function findCursorTarget(text: string, column: number): CursorTarget | null {
+  let width = 0;
+  let charIndex = 0;
+  for (const part of graphemes(text)) {
+    const nextWidth = width + stringWidth(part.segment);
+    if (nextWidth > column) return { charIndex, segment: part.segment };
+    width = nextWidth;
+    charIndex += part.segment.length;
+  }
+  return null;
+}
+
+function renderInvertedTarget(text: string, target: CursorTarget, fgCode: string): string {
+  const before = text.slice(0, target.charIndex);
+  const after = text.slice(target.charIndex + target.segment.length);
+  return (before + invert(target.segment, fgCode) + after).trimEnd();
 }

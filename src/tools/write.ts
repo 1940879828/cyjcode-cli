@@ -48,23 +48,30 @@ function parseWriteArgs(
   args: Record<string, unknown>,
 ): { success: true; value: WriteArgs } | { success: false; error: string } {
   const filePath = typeof args.filePath === "string" ? args.filePath : "";
-  const content = typeof args.content === "string" ? args.content : "";
 
   if (!filePath) return { success: false, error: "filePath 参数不能为空" };
-  if (args.content === undefined || args.content === null) {
-    return { success: false, error: "content 参数不能为空" };
-  }
-  if (typeof args.content !== "string") {
-    return { success: false, error: "content 参数必须是字符串" };
-  }
+  const content = parseWriteContent(args.content);
+  if (!content.success) return content;
 
   const resolved = resolveInsideWorkspace(filePath);
   if (!resolved.success) return resolved;
 
   return {
     success: true,
-    value: { filePath, content, resolvedPath: resolved.path },
+    value: { filePath, content: content.value, resolvedPath: resolved.path },
   };
+}
+
+function parseWriteContent(
+  content: unknown,
+): { success: true; value: string } | { success: false; error: string } {
+  if (content === undefined || content === null) {
+    return { success: false, error: "content 参数不能为空" };
+  }
+  if (typeof content !== "string") {
+    return { success: false, error: "content 参数必须是字符串" };
+  }
+  return { success: true, value: content };
 }
 
 function writeFile(args: WriteArgs): ToolResult {

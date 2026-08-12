@@ -20,6 +20,19 @@ interface Props {
   isExiting?: boolean;
 }
 
+interface SetupValues {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+interface StepValueWriters {
+  setBaseUrl: (value: string) => void;
+  setApiKey: (value: string) => void;
+  setModel: (value: string) => void;
+  setStep: (step: Step) => void;
+}
+
 const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
   const [step, setStep] = useState<Step>("baseUrl");
   const [baseUrl, setBaseUrl] = useState(DEFAULT_CONFIG.baseUrl);
@@ -42,33 +55,21 @@ const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
   const stepIdx = STEP_ORDER.indexOf(step);
 
   const applyStepValue = () => {
-    const s = stepRef.current;
-    const input = inputRef.current;
-    switch (s) {
-      case "baseUrl":
-        setBaseUrl(input || DEFAULT_CONFIG.baseUrl);
-        setStep("apiKey");
-        break;
-      case "apiKey":
-        setApiKey(input);
-        setStep("model");
-        break;
-      case "model":
-        setModel(input || DEFAULT_CONFIG.model);
-        setStep("confirm");
-        break;
-      case "confirm":
-        setConfig({
-          baseUrl: baseUrlRef.current || DEFAULT_CONFIG.baseUrl,
-          apiKey: apiKeyRef.current,
-          model: modelRef.current || DEFAULT_CONFIG.model,
-          models: [modelRef.current || DEFAULT_CONFIG.model],
-          thinking: DEFAULT_CONFIG.thinking,
-          reasoningEffort: DEFAULT_CONFIG.reasoningEffort,
-        });
-        onComplete();
-        return;
+    if (stepRef.current === "confirm") {
+      saveSetupConfig({
+        baseUrl: baseUrlRef.current,
+        apiKey: apiKeyRef.current,
+        model: modelRef.current,
+      }, onComplete);
+      return;
     }
+
+    applyEditableStepValue(stepRef.current, inputRef.current, {
+      setBaseUrl,
+      setApiKey,
+      setModel,
+      setStep,
+    });
     setInputValue("");
   };
 
@@ -137,6 +138,40 @@ const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
     </Box>
   );
 };
+
+function applyEditableStepValue(
+  step: Step,
+  input: string,
+  writers: StepValueWriters,
+): void {
+  switch (step) {
+    case "baseUrl":
+      writers.setBaseUrl(input || DEFAULT_CONFIG.baseUrl);
+      writers.setStep("apiKey");
+      return;
+    case "apiKey":
+      writers.setApiKey(input);
+      writers.setStep("model");
+      return;
+    case "model":
+      writers.setModel(input || DEFAULT_CONFIG.model);
+      writers.setStep("confirm");
+      return;
+  }
+}
+
+function saveSetupConfig(values: SetupValues, onComplete: () => void): void {
+  const model = values.model || DEFAULT_CONFIG.model;
+  setConfig({
+    baseUrl: values.baseUrl || DEFAULT_CONFIG.baseUrl,
+    apiKey: values.apiKey,
+    model,
+    models: [model],
+    thinking: DEFAULT_CONFIG.thinking,
+    reasoningEffort: DEFAULT_CONFIG.reasoningEffort,
+  });
+  onComplete();
+}
 
 const StepContent = ({
   step,

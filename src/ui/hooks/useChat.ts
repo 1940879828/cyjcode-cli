@@ -70,6 +70,19 @@ interface EventHandlers {
   setContextUsage: Dispatch<SetStateAction<ContextUsageState>>;
 }
 
+interface ChatStateSetters {
+  setIsStreaming: Dispatch<SetStateAction<boolean>>;
+  setStreamingReasoning: Dispatch<SetStateAction<string>>;
+  setStreamingAssistantTurn: Dispatch<SetStateAction<AssistantTurn | null>>;
+  setContextUsage: Dispatch<SetStateAction<ContextUsageState>>;
+}
+
+interface StreamRunInput {
+  agentRunner: AgentRunner;
+  append: (entry: ChatEntry) => void;
+  setters: ChatStateSetters;
+}
+
 export function useChat(options: UseChatOptions = {}) {
   const agentRunner = options.agentRunner ?? runAgentLoop;
   const [entries, setEntries] = useState<ChatEntry[]>([]);
@@ -83,54 +96,11 @@ export function useChat(options: UseChatOptions = {}) {
   const append = (entry: ChatEntry) => {
     setEntries((prev) => [...prev, entry]);
   };
+  const setters = { setIsStreaming, setStreamingReasoning, setStreamingAssistantTurn, setContextUsage };
 
-  const consumeEvents = async (text: string) => {
-    const session = createEventSession();
-    const handlers = {
-      append,
-      setStreamingReasoning,
-      setStreamingAssistantTurn,
-      setContextUsage,
-    };
-
-    for await (const event of agentRunner(text)) {
-      consumeAgentEvent(event, session, handlers);
-    }
-  };
-
-  const sendMessage = async (text: string) => {
-    if (isStreaming || !text.trim()) return;
-
-    append(makeEntry("user", text));
-    setIsStreaming(true);
-    setStreamingReasoning("");
-    setStreamingAssistantTurn(null);
-    setContextUsage({ status: "loading" });
-
-    try {
-      await consumeEvents(text);
-    } catch (err) {
-      append(makeEntry("error", `错误: ${err instanceof Error ? err.message : String(err)}`));
-      setContextUsage((current) =>
-        current.status === "loading" ? { status: "error" } : current,
-      );
-    } finally {
-      setIsStreaming(false);
-      setStreamingReasoning("");
-      setStreamingAssistantTurn(null);
-    }
-  };
-
-  const clearChat = () => {
-    setEntries([]);
-    clearHistory();
-    setStreamingAssistantTurn(null);
-    setContextUsage({ status: "idle" });
-  };
-
-  const appendSystemMessage = (content: string) => {
-    append(makeEntry("system", content));
-  };
+  const sendMessage = createSendMessage({ agentRunner, append, setters, isStreaming });
+  const clearChat = createClearChat(setEntries, setters);
+  const appendSystemMessage = (content: string) => append(makeEntry("system", content));
 
   return {
     entries,
@@ -142,6 +112,93 @@ export function useChat(options: UseChatOptions = {}) {
     clearChat,
     appendSystemMessage,
   };
+}
+
+function createSendMessage(input: {
+  agentRunner: AgentRunner;
+  append: (entry: ChatEntry) => void;
+  setters: ChatStateSetters;
+  isStreaming: boolean;
+}): (text: string) => Promise<void> {
+  return async (text) => {
+    if (input.isStreaming || !text.trim()) return;
+    startStreamingMessage(text, input.append, input.setters);
+    await runMessageStream(text, input);
+  };
+}
+
+async function runMessageStream(
+  text: string,
+  input: StreamRunInput,
+): Promise<void> {
+  try {
+    await consumeEvents({ text, ...input });
+  } catch (err) {
+    appendSendError(err, input.append, input.setters);
+  } finally {
+    finishStreamingMessage(input.setters);
+  }
+}
+
+async function consumeEvents(
+  input: StreamRunInput & { text: string },
+): Promise<void> {
+  const session = createEventSession();
+  const handlers = createEventHandlers(input.append, input.setters);
+  for await (const event of input.agentRunner(input.text)) {
+    consumeAgentEvent(event, session, handlers);
+  }
+}
+
+function createClearChat(
+  setEntries: Dispatch<SetStateAction<ChatEntry[]>>,
+  setters: ChatStateSetters,
+): () => void {
+  return () => {
+    setEntries([]);
+    clearHistory();
+    setters.setStreamingAssistantTurn(null);
+    setters.setContextUsage({ status: "idle" });
+  };
+}
+
+function appendSendError(
+  error: unknown,
+  append: (entry: ChatEntry) => void,
+  setters: ChatStateSetters,
+): void {
+  append(makeEntry("error", `错误: ${error instanceof Error ? error.message : String(error)}`));
+  markLoadingContextUsageError(setters.setContextUsage);
+}
+
+function finishStreamingMessage(setters: ChatStateSetters): void {
+  setters.setIsStreaming(false);
+  setters.setStreamingReasoning("");
+  setters.setStreamingAssistantTurn(null);
+}
+
+function createEventHandlers(
+  append: (entry: ChatEntry) => void,
+  setters: ChatStateSetters,
+): EventHandlers {
+  return {
+    append,
+    setStreamingReasoning: setters.setStreamingReasoning,
+    setStreamingAssistantTurn: setters.setStreamingAssistantTurn,
+    setContextUsage: setters.setContextUsage,
+  };
+}
+
+function startStreamingMessage(
+  text: string,
+  append: (entry: ChatEntry) => void,
+  setters: ChatStateSetters,
+): void {
+  append(makeEntry("user", text));
+  setters.setIsStreaming(true);
+  setters.setStreamingReasoning("");
+  setters.setStreamingAssistantTurn(null);
+  setters.setContextUsage({ status: "loading" });
 }
 
 function createEventSession(): EventSession {
@@ -157,34 +214,30 @@ function consumeAgentEvent(
   session: EventSession,
   handlers: EventHandlers,
 ): void {
-  switch (event.type) {
-    case "reasoning_delta":
-      appendReasoning(event.content, session, handlers);
-      return;
-    case "text_delta":
-      appendAssistantText(event.content, session, handlers);
-      return;
-    case "tool_call":
-      rememberToolCall(event, session);
-      return;
-    case "tool_result":
-      appendToolResultSummary(event, session, handlers);
-      return;
-    case "usage":
-      handlers.setContextUsage({ status: "ready", usage: event.usage });
-      return;
-    case "done":
-      finalizeTurn(event.fullText, session, handlers);
-      return;
-    case "error":
-      appendError(event.error, session, handlers);
-      return;
-    case "turn_start":
-    case "turn_end":
-    case "user_message":
-      return;
-  }
+  const handler = AGENT_EVENT_HANDLERS[event.type];
+  handler(event as never, session, handlers);
 }
+
+const AGENT_EVENT_HANDLERS: {
+  [Type in AgentEvent["type"]]: (
+    event: Extract<AgentEvent, { type: Type }>,
+    session: EventSession,
+    handlers: EventHandlers,
+  ) => void;
+} = {
+  reasoning_delta: (event, session, handlers) => appendReasoning(event.content, session, handlers),
+  text_delta: (event, session, handlers) => appendAssistantText(event.content, session, handlers),
+  tool_call: rememberToolCall,
+  tool_result: appendToolResultSummary,
+  usage: (event, _session, handlers) => handlers.setContextUsage({ status: "ready", usage: event.usage }),
+  done: (event, session, handlers) => finalizeTurn(event.fullText, session, handlers),
+  error: (event, session, handlers) => appendError(event.error, session, handlers),
+  turn_start: ignoreAgentEvent,
+  turn_end: ignoreAgentEvent,
+  user_message: ignoreAgentEvent,
+};
+
+function ignoreAgentEvent(): void {}
 
 function appendReasoning(
   content: string,
@@ -280,24 +333,43 @@ function appendError(
   handlers: EventHandlers,
 ): void {
   if (!session.assistantTurn || !hasAssistantTurnContent(session.assistantTurn)) {
-    handlers.append(makeEntry("error", `错误: ${error}`));
-    markContextUsageError(handlers);
+    appendStandaloneError(error, handlers);
     return;
   }
 
-  session.assistantTurn = appendAssistantPart(session.assistantTurn, nextId(), {
-    id: nextId(),
-    kind: "error",
-    content: `错误: ${error}`,
-  });
+  appendTurnError(error, session, handlers);
+}
+
+function appendStandaloneError(error: string, handlers: EventHandlers): void {
+  handlers.append(makeEntry("error", `错误: ${error}`));
+  markContextUsageError(handlers);
+}
+
+function appendTurnError(
+  error: string,
+  session: EventSession,
+  handlers: EventHandlers,
+): void {
+  if (!session.assistantTurn) return;
+  session.assistantTurn = appendAssistantPart(session.assistantTurn, nextId(), createErrorPart(error));
   handlers.append(session.assistantTurn);
   session.assistantTurn = null;
   handlers.setStreamingAssistantTurn(null);
   markContextUsageError(handlers);
 }
 
+function createErrorPart(error: string): { id: string; kind: "error"; content: string } {
+  return { id: nextId(), kind: "error", content: `错误: ${error}` };
+}
+
 function markContextUsageError(handlers: EventHandlers): void {
-  handlers.setContextUsage((current) =>
+  markLoadingContextUsageError(handlers.setContextUsage);
+}
+
+function markLoadingContextUsageError(
+  setContextUsage: Dispatch<SetStateAction<ContextUsageState>>,
+): void {
+  setContextUsage((current) =>
     current.status === "loading" ? { status: "error" } : current,
   );
 }

@@ -10,26 +10,20 @@ export interface ToolDisplayContext {
 export function formatToolDisplay(context: ToolDisplayContext): string {
   const target = getToolTarget(context);
   const range = getLineRange(context.result.metadata);
+  const formatter = TOOL_DISPLAY_FORMATTERS[context.name];
 
-  switch (context.name) {
-    case "read":
-      return `👀读取文件"${target}"${range}`;
-    case "edit":
-      return `✍️编辑文件"${target}"${range}`;
-    case "search":
-      return `🔍搜索文件"${target}"`;
-    case "write":
-      return `✍️写入文件"${target}"`;
-    case "rename":
-      return `✍️重命名文件"${target}"`;
-    case "listDir":
-      return `📁查看目录"${target}"`;
-    case "shell":
-      return `⚙️运行命令"${target}"`;
-    default:
-      return `调用工具"${context.name}"`;
-  }
+  return formatter ? formatter(target, range) : `调用工具"${context.name}"`;
 }
+
+const TOOL_DISPLAY_FORMATTERS: Record<string, (target: string, range: string) => string> = {
+  read: (target, range) => `👀读取文件"${target}"${range}`,
+  edit: (target, range) => `✍️编辑文件"${target}"${range}`,
+  search: (target) => `🔍搜索文件"${target}"`,
+  write: (target) => `✍️写入文件"${target}"`,
+  rename: (target) => `✍️重命名文件"${target}"`,
+  listDir: (target) => `📁查看目录"${target}"`,
+  shell: (target) => `⚙️运行命令"${target}"`,
+};
 
 export function formatToolErrorDisplay(context: ToolDisplayContext): string {
   return `${formatToolDisplay(context)} 失败: ${context.result.error ?? "未知错误"}`;
@@ -37,21 +31,10 @@ export function formatToolErrorDisplay(context: ToolDisplayContext): string {
 
 function getToolTarget(context: ToolDisplayContext): string {
   const metadataPath = getMetadataPath(context.result.metadata);
-  if (metadataPath) {
-    return formatPath(metadataPath);
-  }
+  if (metadataPath) return formatPath(metadataPath);
 
-  if (context.name === "search") {
-    return formatPath(stringArg(context.arguments.path) || ".");
-  }
-
-  if (context.name === "rename") {
-    return `${stringArg(context.arguments.oldPath) || "?"} → ${stringArg(context.arguments.newPath) || "?"}`;
-  }
-
-  if (context.name === "shell") {
-    return truncate(stringArg(context.arguments.command) || context.name, 80);
-  }
+  const specialTarget = getSpecialToolTarget(context);
+  if (specialTarget) return specialTarget;
 
   const target =
     stringArg(context.arguments.filePath) ||
@@ -59,6 +42,17 @@ function getToolTarget(context: ToolDisplayContext): string {
     stringArg(context.arguments.pattern) ||
     context.name;
   return formatPath(target);
+}
+
+function getSpecialToolTarget(context: ToolDisplayContext): string | undefined {
+  if (context.name === "search") return formatPath(stringArg(context.arguments.path) || ".");
+  if (context.name === "rename") return formatRenameTarget(context.arguments);
+  if (context.name === "shell") return truncate(stringArg(context.arguments.command) || context.name, 80);
+  return undefined;
+}
+
+function formatRenameTarget(args: Record<string, unknown>): string {
+  return `${stringArg(args.oldPath) || "?"} → ${stringArg(args.newPath) || "?"}`;
 }
 
 function getLineRange(metadata: Record<string, unknown> | undefined): string {

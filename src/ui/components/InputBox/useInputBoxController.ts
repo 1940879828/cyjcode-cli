@@ -35,9 +35,7 @@ export const useInputBoxController = ({
   disabled,
   isExiting,
 }: UseInputBoxControllerOptions): InputBoxController => {
-  const [inputState, setInputState] = useState<InputBoxState>(() =>
-    createInputBoxState(),
-  );
+  const [inputState, setInputState] = useState<InputBoxState>(createInputBoxState);
   const inputStateRef = useRef(inputState);
   const onSubmitRef = useRef(onSubmit);
   const inputHistoryRef = useRef(inputHistory);
@@ -55,22 +53,16 @@ export const useInputBoxController = ({
   };
 
   const dispatchInputEvent = (event: InputBoxEvent) => {
-    if (!isActive) {
-      return;
-    }
-    commitInputState(
-      reduceInputBoxState(
-        inputStateRef.current,
-        event,
-        { layout, inputHistory: inputHistoryRef.current },
-      ),
-    );
+    if (!isActive) return;
+    const nextState = reduceInputBoxState(inputStateRef.current, event, {
+      layout,
+      inputHistory: inputHistoryRef.current,
+    });
+    commitInputState(nextState);
   };
 
   const dispatchInputCommand = (command: InputBoxCommand) => {
-    if (!isActive) {
-      return;
-    }
+    if (!isActive) return;
     if (command.type === "edit") {
       dispatchInputEvent(command.event);
       return;

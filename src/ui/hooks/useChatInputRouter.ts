@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { useInput, usePaste } from "ink";
 import type { Key } from "ink";
 import type { TranscriptScrollAction } from "../transcriptScroll.js";
@@ -51,29 +51,24 @@ export const routeChatInput = (
   key: ChatInputKey,
   context: ChatInputRouteContext,
 ): ChatInputRoute => {
-  if (isExitInput(input, key)) {
-    return { type: "exit" };
-  }
+  if (isExitInput(input, key)) return { type: "exit" };
 
-  const mouseActions = getMouseScrollActions(input, context.wheelRows);
-  if (mouseActions.length > 0) {
-    return { type: "scroll", actions: mouseActions };
-  }
-  if (hasMouseInput(input)) {
-    return { type: "mouse" };
-  }
+  const mouseRoute = routeMouseInput(input, context.wheelRows);
+  if (mouseRoute) return mouseRoute;
 
   const keyboardScrollAction = getKeyboardScrollAction(input, key, context);
-  if (keyboardScrollAction) {
-    return { type: "scroll", actions: [keyboardScrollAction] };
-  }
+  if (keyboardScrollAction) return { type: "scroll", actions: [keyboardScrollAction] };
 
-  if (context.isStreaming) {
-    return { type: "ignore" };
-  }
+  if (context.isStreaming) return { type: "ignore" };
 
   return { type: "input", input, key };
 };
+
+function routeMouseInput(input: string, wheelRows: number): ChatInputRoute | null {
+  const mouseActions = getMouseScrollActions(input, wheelRows);
+  if (mouseActions.length > 0) return { type: "scroll", actions: mouseActions };
+  return hasMouseInput(input) ? { type: "mouse" } : null;
+}
 
 export const getMouseScrollActions = (
   input: string,
@@ -95,44 +90,50 @@ export function useChatInputRouter(options: ChatInputRouterOptions) {
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
+  useRouteInput(optionsRef, options.enabled);
+  useRoutePaste(optionsRef, options.enabled);
+  useMouseTracking(options.enabled, options.mouseTrackingEnabled);
+}
+
+function useRouteInput(optionsRef: RefObject<ChatInputRouterOptions>, enabled: boolean): void {
   useInput((input, key) => {
     const current = optionsRef.current;
-    const route = routeChatInput(input, key, {
-      isStreaming: current.isStreaming,
-      isTranscriptPinnedToBottom: current.isTranscriptPinnedToBottom,
-      wheelRows: current.wheelRows,
-    });
-
+    const route = routeChatInput(input, key, toRouteContext(current));
     dispatchRoute(route, {
       requestExit: current.requestExit,
       scroll: current.scroll,
       handleInput: current.handleInput,
     });
-  }, { isActive: options.enabled });
+  }, { isActive: enabled });
+}
 
+function useRoutePaste(optionsRef: RefObject<ChatInputRouterOptions>, enabled: boolean): void {
   usePaste((text) => {
     const current = optionsRef.current;
-    if (current.isStreaming) {
-      return;
-    }
-    current.handlePaste(text);
-  }, { isActive: options.enabled });
+    if (!current.isStreaming) current.handlePaste(text);
+  }, { isActive: enabled });
+}
 
+function useMouseTracking(enabled: boolean, mouseTrackingEnabled: boolean): void {
   useEffect(() => {
-    if (
-      !options.enabled ||
-      !options.mouseTrackingEnabled ||
-      !process.stdin.isTTY ||
-      !process.stdout.isTTY
-    ) {
-      return;
-    }
-
+    if (!canTrackMouse(enabled, mouseTrackingEnabled)) return;
     process.stdout.write(ENABLE_SGR_MOUSE);
     return () => {
       process.stdout.write(DISABLE_SGR_MOUSE);
     };
-  }, [options.enabled, options.mouseTrackingEnabled]);
+  }, [enabled, mouseTrackingEnabled]);
+}
+
+function toRouteContext(options: ChatInputRouterOptions): ChatInputRouteContext {
+  return {
+    isStreaming: options.isStreaming,
+    isTranscriptPinnedToBottom: options.isTranscriptPinnedToBottom,
+    wheelRows: options.wheelRows,
+  };
+}
+
+function canTrackMouse(enabled: boolean, mouseTrackingEnabled: boolean): boolean {
+  return enabled && mouseTrackingEnabled && process.stdin.isTTY && process.stdout.isTTY;
 }
 
 const dispatchRoute = (
@@ -166,29 +167,32 @@ const getKeyboardScrollAction = (
   key: ChatInputKey,
   context: ChatInputRouteContext,
 ): TranscriptScrollAction | null => {
-  if (key.pageUp) {
-    return { type: "pageUp" };
-  }
-  if (key.pageDown) {
-    return { type: "pageDown" };
-  }
-  if (key.end && !context.isTranscriptPinnedToBottom) {
-    return { type: "bottom" };
-  }
-  if (!context.isStreaming) {
-    return null;
-  }
-  if (key.home) {
-    return { type: "top" };
-  }
-  if (key.end) {
-    return { type: "bottom" };
-  }
-  if (key.ctrl && input === "u") {
-    return { type: "lineUp", amount: Math.max(1, Math.floor(context.wheelRows * 1.5)) };
-  }
-  if (key.ctrl && input === "d") {
-    return { type: "lineDown", amount: Math.max(1, Math.floor(context.wheelRows * 1.5)) };
-  }
-  return null;
+  return getGlobalScrollAction(key, context) ?? getStreamingScrollAction(input, key, context);
 };
+
+function getGlobalScrollAction(
+  key: ChatInputKey,
+  context: ChatInputRouteContext,
+): TranscriptScrollAction | null {
+  if (key.pageUp) return { type: "pageUp" };
+  if (key.pageDown) return { type: "pageDown" };
+  if (key.end && !context.isTranscriptPinnedToBottom) return { type: "bottom" };
+  return null;
+}
+
+function getStreamingScrollAction(
+  input: string,
+  key: ChatInputKey,
+  context: ChatInputRouteContext,
+): TranscriptScrollAction | null {
+  if (!context.isStreaming) return null;
+  if (key.home) return { type: "top" };
+  if (key.end) return { type: "bottom" };
+  if (key.ctrl && input === "u") return { type: "lineUp", amount: getCtrlScrollAmount(context) };
+  if (key.ctrl && input === "d") return { type: "lineDown", amount: getCtrlScrollAmount(context) };
+  return null;
+}
+
+function getCtrlScrollAmount(context: ChatInputRouteContext): number {
+  return Math.max(1, Math.floor(context.wheelRows * 1.5));
+}

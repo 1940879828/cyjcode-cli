@@ -49,6 +49,18 @@ interface ReadArgs {
   limit?: number;
 }
 
+interface ReadRange {
+  startLine: number;
+  endLineExclusive: number;
+}
+
+interface ReadSnippetInput {
+  resolvedPath: string;
+  metadata: ReturnType<typeof readTextFileMetadata>;
+  range: ReadRange;
+  lines: string[];
+}
+
 function parseReadArgs(
   args: Record<string, unknown>,
 ): { success: true; value: ReadArgs } | { success: false; error: string } {
@@ -110,29 +122,42 @@ function buildReadResult(
   const parsedRange = parseReadRange(args.offset, args.limit, lines.length);
   if (!parsedRange.success) return { success: false, error: parsedRange.error };
 
-  const { startLine, endLineExclusive } = parsedRange;
-  const sliced = lines.slice(startLine, endLineExclusive);
-  const displayStartLine = startLine + 1;
-  const snippet = createSnippet(
-    resolvedPath,
-    displayStartLine,
-    displayStartLine + sliced.length - 1,
-    sliced.join("\n"),
-    metadata,
-  );
-  const numbered = metadata.content === "" ? "" : formatWithLineNumbers(sliced, displayStartLine);
-
+  const sliced = lines.slice(parsedRange.startLine, parsedRange.endLineExclusive);
+  const snippet = createReadSnippet({ resolvedPath, metadata, range: parsedRange, lines: sliced });
   return {
     success: true,
-    data: numbered || "(空文件)",
-    metadata: {
-      snippet: {
-        id: snippet.id,
-        filePath: snippet.filePath,
-        startLine: snippet.startLine,
-        endLine: snippet.endLine,
-      },
-    },
+    data: formatReadData(metadata.content, sliced, snippet.startLine),
+    metadata: { snippet: buildSnippetMetadata(snippet) },
+  };
+}
+
+function createReadSnippet(input: ReadSnippetInput) {
+  const displayStartLine = input.range.startLine + 1;
+  return createSnippet({
+    filePath: input.resolvedPath,
+    startLine: displayStartLine,
+    endLine: displayStartLine + input.lines.length - 1,
+    content: input.lines.join("\n"),
+    metadata: input.metadata,
+  });
+}
+
+function formatReadData(content: string, lines: string[], startLine: number): string {
+  if (content === "") return "(空文件)";
+  return formatWithLineNumbers(lines, startLine);
+}
+
+function buildSnippetMetadata(snippet: {
+  id: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}): Record<string, unknown> {
+  return {
+    id: snippet.id,
+    filePath: snippet.filePath,
+    startLine: snippet.startLine,
+    endLine: snippet.endLine,
   };
 }
 
@@ -140,34 +165,35 @@ function parseReadRange(
   offset: number | undefined,
   limit: number | undefined,
   totalLines: number,
-): { success: true; startLine: number; endLineExclusive: number } | { success: false; error: string } {
-  if (offset !== undefined && (!Number.isInteger(offset) || offset < 1)) {
-    return {
-      success: false,
-      error: "offset 必须是大于等于 1 的整数",
-    };
-  }
+): { success: true } & ReadRange | { success: false; error: string } {
+  const offsetError = validateOffset(offset, totalLines);
+  if (offsetError) return { success: false, error: offsetError };
+
+  const limitError = validateLimit(limit);
+  if (limitError) return { success: false, error: limitError };
 
   const startLine = offset === undefined ? 0 : offset - 1;
-  if (startLine >= totalLines) {
-    return {
-      success: false,
-      error: `offset ${offset} 超出文件行数范围 (共 ${totalLines} 行)`,
-    };
-  }
-
-  if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
-    return {
-      success: false,
-      error: "limit 必须是大于 0 的整数",
-    };
-  }
-
   return {
     success: true,
     startLine,
     endLineExclusive: limit === undefined ? totalLines : Math.min(startLine + limit, totalLines),
   };
+}
+
+function validateOffset(offset: number | undefined, totalLines: number): string | undefined {
+  if (offset !== undefined && (!Number.isInteger(offset) || offset < 1)) {
+    return "offset 必须是大于等于 1 的整数";
+  }
+
+  const startLine = offset === undefined ? 0 : offset - 1;
+  return startLine >= totalLines ? `offset ${offset} 超出文件行数范围 (共 ${totalLines} 行)` : undefined;
+}
+
+function validateLimit(limit: number | undefined): string | undefined {
+  if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
+    return "limit 必须是大于 0 的整数";
+  }
+  return undefined;
 }
 
 export default read;

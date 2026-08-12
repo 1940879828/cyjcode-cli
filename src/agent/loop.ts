@@ -24,6 +24,13 @@ interface TurnResponse {
   usage: TokenUsage | null;
 }
 
+interface ToolExecutionContext {
+  session: SessionContext;
+  turn: number;
+  toolCall: ToolCall;
+  args: Record<string, unknown>;
+}
+
 export async function* runAgentLoop(
   userMessage: string,
 ): AsyncGenerator<AgentEvent> {
@@ -33,25 +40,42 @@ export async function* runAgentLoop(
   addMessage({ role: "user", content: userMessage });
 
   for (let turn = 1; turn <= MAX_ROUNDS; turn++) {
-    yield { type: "turn_start", turn };
-
-    try {
-      const response = yield* emitLlmTurn(context, turn);
-      if (!response.toolCalls) {
-        yield* finishTextResponse(context, turn, response.fullText);
-        return;
-      }
-
-      addAssistantToolRequest(response);
-      yield* executeToolCalls(context, turn, response.toolCalls);
-      yield { type: "turn_end", turn };
-    } catch (error) {
-      yield* finishWithError(context, turn, toErrorMessage(error));
-      return;
-    }
+    const completed = yield* runAgentTurn(context, turn);
+    if (completed) return;
   }
 
   yield* finishMaxRounds(context);
+}
+
+async function* runAgentTurn(
+  context: SessionContext,
+  turn: number,
+): AsyncGenerator<AgentEvent, boolean> {
+  yield { type: "turn_start", turn };
+
+  try {
+    const response = yield* emitLlmTurn(context, turn);
+    return yield* handleTurnResponse(context, turn, response);
+  } catch (error) {
+    yield* finishWithError(context, turn, toErrorMessage(error));
+    return true;
+  }
+}
+
+async function* handleTurnResponse(
+  context: SessionContext,
+  turn: number,
+  response: TurnResponse,
+): AsyncGenerator<AgentEvent, boolean> {
+  if (!response.toolCalls) {
+    yield* finishTextResponse(context, turn, response.fullText);
+    return true;
+  }
+
+  addAssistantToolRequest(response);
+  yield* executeToolCalls(context, turn, response.toolCalls);
+  yield { type: "turn_end", turn };
+  return false;
 }
 
 function startSession(userMessage: string): SessionContext {
@@ -98,21 +122,31 @@ function consumeStreamEvent(
     case "reasoning_delta":
       return { type: "reasoning_delta", content: event.content };
     case "text_delta":
-      response.fullText += event.content;
-      return { type: "text_delta", content: event.content };
+      return consumeTextDelta(response, event.content);
     case "usage":
-      response.usage = event.usage;
-      return { type: "usage", usage: event.usage };
+      return consumeUsage(response, event.usage);
     case "done":
-      response.toolCalls = event.message.tool_calls?.length
-        ? event.message.tool_calls
-        : null;
+      response.toolCalls = extractToolCalls(event.message.tool_calls);
       return null;
     case "tool_call_delta":
       return null;
     case "error":
       throw event.error;
   }
+}
+
+function consumeTextDelta(response: TurnResponse, content: string): AgentEvent {
+  response.fullText += content;
+  return { type: "text_delta", content };
+}
+
+function consumeUsage(response: TurnResponse, usage: TokenUsage): AgentEvent {
+  response.usage = usage;
+  return { type: "usage", usage };
+}
+
+function extractToolCalls(toolCalls: ToolCall[] | undefined): ToolCall[] | null {
+  return toolCalls?.length ? toolCalls : null;
 }
 
 function logLlmResponse(
@@ -163,27 +197,23 @@ async function* executeToolCalls(
       yield* emitToolParseError(context, turn, toolCall);
       continue;
     }
-    yield* emitToolExecution(context, turn, toolCall, parsedArgs);
+    yield* emitToolExecution({ session: context, turn, toolCall, args: parsedArgs });
   }
 }
 
-async function* emitToolExecution(
-  context: SessionContext,
-  turn: number,
-  toolCall: ToolCall,
-  parsedArgs: Record<string, unknown>,
-): AsyncGenerator<AgentEvent> {
+async function* emitToolExecution(input: ToolExecutionContext): AsyncGenerator<AgentEvent> {
+  const { session, turn, toolCall, args } = input;
   const tool = getTool(toolCall.function.name);
   if (!tool) {
-    yield* emitToolFailure(context, turn, toolCall, parsedArgs, "未注册的工具");
+    yield* emitToolFailure({ ...input, errorMessage: "未注册的工具" });
     return;
   }
 
-  logToolStart(context, turn, toolCall.function.name, parsedArgs);
-  const result = await runTool(tool, parsedArgs);
-  logToolEnd(context, turn, toolCall.function.name, result);
+  logToolStart(input);
+  const result = await runTool(tool, args);
+  logToolEnd(input, result);
 
-  yield { type: "tool_call", callId: toolCall.id, name: toolCall.function.name, arguments: parsedArgs };
+  yield { type: "tool_call", callId: toolCall.id, name: toolCall.function.name, arguments: args };
   yield { type: "tool_result", callId: toolCall.id, name: toolCall.function.name, result };
   appendToolResult(toolCall.id, toolCall.function.name, formatToolResultForModel(result));
 }
@@ -205,47 +235,38 @@ function* emitToolParseError(
   toolCall: ToolCall,
 ): Generator<AgentEvent> {
   const errorMessage = `工具参数 JSON 解析失败: ${toolCall.function.arguments}`;
-  yield* emitToolFailure(context, turn, toolCall, {}, errorMessage);
+  yield* emitToolFailure({ session: context, turn, toolCall, args: {}, errorMessage });
 }
 
 function* emitToolFailure(
-  context: SessionContext,
-  turn: number,
-  toolCall: ToolCall,
-  parsedArgs: Record<string, unknown>,
-  errorMessage: string,
+  input: ToolExecutionContext & { errorMessage: string },
 ): Generator<AgentEvent> {
-  logToolStart(context, turn, toolCall.function.name, parsedArgs);
-  logToolEnd(context, turn, toolCall.function.name, { success: false, error: errorMessage });
-  yield { type: "tool_call", callId: toolCall.id, name: toolCall.function.name, arguments: parsedArgs };
+  logToolStart(input);
+  logToolEnd(input, { success: false, error: input.errorMessage });
+  yield { type: "tool_call", callId: input.toolCall.id, name: input.toolCall.function.name, arguments: input.args };
   yield {
     type: "tool_result",
-    callId: toolCall.id,
-    name: toolCall.function.name,
-    result: { success: false, error: errorMessage },
+    callId: input.toolCall.id,
+    name: input.toolCall.function.name,
+    result: { success: false, error: input.errorMessage },
   };
-  appendToolResult(toolCall.id, toolCall.function.name, `错误: ${errorMessage}`);
+  appendToolResult(input.toolCall.id, input.toolCall.function.name, `错误: ${input.errorMessage}`);
 }
 
-function logToolStart(
-  context: SessionContext,
-  turn: number,
-  toolName: string,
-  args: Record<string, unknown>,
-): void {
-  log("tool.start", { sessionId: context.sessionId, turn, tool: toolName, args });
+function logToolStart(input: ToolExecutionContext): void {
+  log("tool.start", {
+    sessionId: input.session.sessionId,
+    turn: input.turn,
+    tool: input.toolCall.function.name,
+    args: input.args,
+  });
 }
 
-function logToolEnd(
-  context: SessionContext,
-  turn: number,
-  toolName: string,
-  result: ToolResult,
-): void {
+function logToolEnd(input: ToolExecutionContext, result: ToolResult): void {
   log("tool.end", {
-    sessionId: context.sessionId,
-    turn,
-    tool: toolName,
+    sessionId: input.session.sessionId,
+    turn: input.turn,
+    tool: input.toolCall.function.name,
     success: result.success,
     error: result.success ? undefined : result.error,
   });

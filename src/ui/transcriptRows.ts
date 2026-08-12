@@ -57,6 +57,19 @@ const USER_PREFIX = "❯ ";
 const ASSISTANT_PREFIX = "● ";
 const CONTINUATION_PREFIX = "  ";
 
+interface ThinkingRowsInput {
+  rows: TranscriptRow[];
+  id: string;
+  content: string;
+  width: number;
+}
+
+interface WrapState {
+  rows: string[];
+  current: string;
+  currentWidth: number;
+}
+
 const ROLE_STYLES: Record<TranscriptRowKind, Omit<TranscriptRow, "id" | "kind" | "text">> = {
   header: { color: "#E6EBF2" },
   spacer: {},
@@ -77,21 +90,25 @@ export const buildTranscriptRows = ({
 }: BuildTranscriptRowsInput): TranscriptRow[] => {
   const rows: TranscriptRow[] = [];
 
-  if (header) {
-    appendHeaderRows(rows, header, width);
-  }
+  if (header) appendHeaderRows(rows, header, width);
 
   entries.forEach((entry) => appendEntryRows(rows, entry, width));
 
-  if (streamingReasoning) {
-    appendThinkingRows(rows, "streaming_reasoning", streamingReasoning, width);
-  }
-
-  if (streamingAssistantTurn) {
-    appendAssistantTurnRows(rows, streamingAssistantTurn, width);
-  }
-
+  appendStreamingRows(rows, { streamingReasoning, streamingAssistantTurn, width });
   return rows;
+};
+
+const appendStreamingRows = (
+  rows: TranscriptRow[],
+  input: Pick<BuildTranscriptRowsInput, "streamingReasoning" | "streamingAssistantTurn" | "width">,
+) => {
+  if (input.streamingReasoning) {
+    appendThinkingRows({ rows, id: "streaming_reasoning", content: input.streamingReasoning, width: input.width });
+  }
+
+  if (input.streamingAssistantTurn) {
+    appendAssistantTurnRows(rows, input.streamingAssistantTurn, input.width);
+  }
 };
 
 const appendHeaderRows = (
@@ -101,7 +118,14 @@ const appendHeaderRows = (
 ) => {
   const boxWidth = Math.max(4, Math.min(HEADER_WIDTH, width));
   const innerWidth = boxWidth - 2;
-  const headerRows = [
+  buildHeaderRows(header, innerWidth)
+    .forEach((row, index) => rows.push({ ...row, id: `header_${index}` }));
+};
+
+const buildHeaderRows = (
+  header: TranscriptHeader,
+  innerWidth: number,
+): Array<Omit<TranscriptRow, "id">> => [
     createHeaderRow(`╭${"─".repeat(innerWidth)}╮`),
     createHeaderTitleRow(innerWidth, header.version),
     createHeaderRow(`│${" ".repeat(innerWidth)}│`),
@@ -112,9 +136,6 @@ const appendHeaderRows = (
     createHeaderRow(`╰${"─".repeat(innerWidth)}╯`),
     createHeaderRow(""),
   ];
-
-  headerRows.forEach((row, index) => rows.push({ ...row, id: `header_${index}` }));
-};
 
 const createHeaderRow = (
   text: string,
@@ -130,24 +151,32 @@ const createHeaderTitleRow = (
   innerWidth: number,
   version: string,
 ): Omit<TranscriptRow, "id"> => {
-  const leftSegments = [
-    { text: ">_ ", color: ENERGY_GOLD, bold: true },
-    { text: "Tiga", color: TIGA_RED, bold: true },
-    { text: " Code", color: TIMER_BLUE, bold: true },
-  ];
+  const leftSegments = createHeaderTitleSegments();
   const rightText = truncateByColumns(`(V${version})`, innerWidth);
   const leftText = leftSegments.map((segment) => segment.text).join("");
   const gap = Math.max(0, innerWidth - stringWidth(leftText) - stringWidth(rightText));
-  const segments = [
-    { text: "│", color: BORDER_COLOR },
-    ...leftSegments,
-    { text: " ".repeat(gap), color: BORDER_COLOR },
-    { text: rightText, color: ENERGY_GOLD, bold: true },
-    { text: "│", color: BORDER_COLOR },
-  ];
+  const segments = wrapHeaderTitleSegments(leftSegments, rightText, gap);
 
   return createHeaderRow(segments.map((segment) => segment.text).join(""), segments);
 };
+
+const createHeaderTitleSegments = (): TranscriptRowSegment[] => [
+  { text: ">_ ", color: ENERGY_GOLD, bold: true },
+  { text: "Tiga", color: TIGA_RED, bold: true },
+  { text: " Code", color: TIMER_BLUE, bold: true },
+];
+
+const wrapHeaderTitleSegments = (
+  leftSegments: TranscriptRowSegment[],
+  rightText: string,
+  gap: number,
+): TranscriptRowSegment[] => [
+  { text: "│", color: BORDER_COLOR },
+  ...leftSegments,
+  { text: " ".repeat(gap), color: BORDER_COLOR },
+  { text: rightText, color: ENERGY_GOLD, bold: true },
+  { text: "│", color: BORDER_COLOR },
+];
 
 const createHeaderInfoRow = (
   label: string,
@@ -169,25 +198,24 @@ const createHeaderInfoRow = (
 };
 
 const truncateByColumns = (text: string, width: number): string => {
-  if (stringWidth(text) <= width) {
-    return text;
-  }
-  if (width <= 1) {
-    return "";
-  }
+  if (stringWidth(text) <= width) return text;
+  if (width <= 1) return "";
 
   const ellipsis = "…";
+  const truncated = takeColumns(text, width - stringWidth(ellipsis));
+  return `${truncated}${ellipsis}`;
+};
+
+const takeColumns = (text: string, width: number): string => {
   let result = "";
-  let resultWidth = stringWidth(ellipsis);
+  let resultWidth = 0;
   for (const cluster of splitGraphemes(text)) {
     const clusterWidth = Math.max(1, stringWidth(cluster));
-    if (resultWidth + clusterWidth > width) {
-      break;
-    }
+    if (resultWidth + clusterWidth > width) break;
     result += cluster;
     resultWidth += clusterWidth;
   }
-  return `${result}${ellipsis}`;
+  return result;
 };
 
 export const wrapTextByColumns = (text: string, width: number): string[] => {
@@ -206,9 +234,17 @@ const appendEntryRows = (
     return;
   }
 
+  appendTextEntryRows(rows, entry, width);
+};
+
+const appendTextEntryRows = (
+  rows: TranscriptRow[],
+  entry: TextChatEntry,
+  width: number,
+) => {
   const { kind, firstPrefix, restPrefix } = getTextEntryRowConfig(entry);
   if (kind === "thinking") {
-    appendThinkingRows(rows, entry.id, entry.content, width);
+    appendThinkingRows({ rows, id: entry.id, content: entry.content, width });
     return;
   }
 
@@ -222,44 +258,38 @@ const appendEntryRows = (
   });
 };
 
+const TEXT_ENTRY_CONFIGS: Record<TextChatEntry["role"], {
+  kind: TranscriptRowKind;
+  firstPrefix: string;
+  restPrefix: string;
+}> = {
+  user: { kind: "user", firstPrefix: USER_PREFIX, restPrefix: CONTINUATION_PREFIX },
+  thinking: { kind: "thinking", firstPrefix: "Thinking: ", restPrefix: CONTINUATION_PREFIX },
+  tool_call: { kind: "tool", firstPrefix: "", restPrefix: CONTINUATION_PREFIX },
+  tool_result: { kind: "tool", firstPrefix: "", restPrefix: CONTINUATION_PREFIX },
+  error: { kind: "error", firstPrefix: "Error: ", restPrefix: CONTINUATION_PREFIX },
+  system: { kind: "system", firstPrefix: "", restPrefix: "" },
+};
+
 const getTextEntryRowConfig = (
   entry: TextChatEntry,
 ): {
   kind: TranscriptRowKind;
   firstPrefix: string;
   restPrefix: string;
-} => {
-  switch (entry.role) {
-    case "user":
-      return { kind: "user", firstPrefix: USER_PREFIX, restPrefix: CONTINUATION_PREFIX };
-    case "thinking":
-      return { kind: "thinking", firstPrefix: "Thinking: ", restPrefix: CONTINUATION_PREFIX };
-    case "tool_call":
-    case "tool_result":
-      return { kind: "tool", firstPrefix: "", restPrefix: CONTINUATION_PREFIX };
-    case "error":
-      return { kind: "error", firstPrefix: "Error: ", restPrefix: CONTINUATION_PREFIX };
-    case "system":
-      return { kind: "system", firstPrefix: "", restPrefix: "" };
-  }
-};
+} => TEXT_ENTRY_CONFIGS[entry.role];
 
-const appendThinkingRows = (
-  rows: TranscriptRow[],
-  id: string,
-  content: string,
-  width: number,
-) => {
-  appendSpacerRow(rows, `${id}_before`);
-  appendWrappedRows(rows, {
-    id,
+const appendThinkingRows = (input: ThinkingRowsInput) => {
+  appendSpacerRow(input.rows, `${input.id}_before`);
+  appendWrappedRows(input.rows, {
+    id: input.id,
     kind: "thinking",
-    content,
-    width,
+    content: input.content,
+    width: input.width,
     firstPrefix: "Thinking: ",
     restPrefix: CONTINUATION_PREFIX,
   });
-  appendSpacerRow(rows, `${id}_after`);
+  appendSpacerRow(input.rows, `${input.id}_after`);
 };
 
 const appendSpacerRow = (rows: TranscriptRow[], id: string) => {
@@ -275,28 +305,36 @@ const appendAssistantTurnRows = (
   turn: AssistantTurn,
   width: number,
 ) => {
-  turn.parts.forEach((part) => {
-    appendWrappedRows(rows, {
-      id: part.id,
-      kind: getAssistantPartRowKind(part.kind),
-      content: part.content,
-      width,
-      firstPrefix: part.kind === "text" ? ASSISTANT_PREFIX : CONTINUATION_PREFIX,
-      restPrefix: CONTINUATION_PREFIX,
-    });
-  });
+  turn.parts.forEach((part) => appendAssistantPartRows(rows, part, width));
 
-  if (turn.activeText) {
-    appendWrappedRows(rows, {
-      id: `${turn.id}_active`,
-      kind: "assistant",
-      content: turn.activeText,
-      width,
-      firstPrefix: ASSISTANT_PREFIX,
-      restPrefix: CONTINUATION_PREFIX,
-    });
-  }
+  if (turn.activeText) appendActiveAssistantRow(rows, turn, width);
 };
+
+const appendAssistantPartRows = (
+  rows: TranscriptRow[],
+  part: AssistantTurn["parts"][number],
+  width: number,
+) => appendWrappedRows(rows, {
+  id: part.id,
+  kind: getAssistantPartRowKind(part.kind),
+  content: part.content,
+  width,
+  firstPrefix: part.kind === "text" ? ASSISTANT_PREFIX : CONTINUATION_PREFIX,
+  restPrefix: CONTINUATION_PREFIX,
+});
+
+const appendActiveAssistantRow = (
+  rows: TranscriptRow[],
+  turn: AssistantTurn,
+  width: number,
+) => appendWrappedRows(rows, {
+  id: `${turn.id}_active`,
+  kind: "assistant",
+  content: turn.activeText,
+  width,
+  firstPrefix: ASSISTANT_PREFIX,
+  restPrefix: CONTINUATION_PREFIX,
+});
 
 const getAssistantPartRowKind = (
   kind: AssistantTurnPartKind,
@@ -326,14 +364,22 @@ const appendWrappedRows = (
   const wrappedLines = wrapTextWithContinuation(options.content, firstWidth, restWidth);
 
   wrappedLines.forEach((line, index) => {
-    const prefix = index === 0 ? options.firstPrefix : options.restPrefix;
-    rows.push({
-      id: `${options.id}_${index}`,
-      kind: options.kind,
-      text: `${prefix}${line}`,
-      ...ROLE_STYLES[options.kind],
-    });
+    rows.push(createWrappedRow(options, line, index));
   });
+};
+
+const createWrappedRow = (
+  options: Parameters<typeof appendWrappedRows>[1],
+  line: string,
+  index: number,
+): TranscriptRow => {
+  const prefix = index === 0 ? options.firstPrefix : options.restPrefix;
+  return {
+    id: `${options.id}_${index}`,
+    kind: options.kind,
+    text: `${prefix}${line}`,
+    ...ROLE_STYLES[options.kind],
+  };
 };
 
 const wrapTextWithContinuation = (
@@ -354,29 +400,7 @@ const wrapTextWithContinuation = (
 };
 
 const wrapLogicalLine = (line: string, width: number): string[] => {
-  if (!line) {
-    return [""];
-  }
-
-  const rows: string[] = [];
-  let current = "";
-  let currentWidth = 0;
-
-  for (const cluster of splitGraphemes(line)) {
-    const clusterWidth = Math.max(1, stringWidth(cluster));
-    if (current && currentWidth + clusterWidth > width) {
-      rows.push(current);
-      current = cluster;
-      currentWidth = clusterWidth;
-      continue;
-    }
-
-    current += cluster;
-    currentWidth += clusterWidth;
-  }
-
-  rows.push(current);
-  return rows;
+  return wrapLogicalLineWithWidths(line, width, width);
 };
 
 const wrapLogicalLineWithFirstWidth = (
@@ -384,30 +408,37 @@ const wrapLogicalLineWithFirstWidth = (
   firstWidth: number,
   restWidth: number,
 ): string[] => {
-  if (!line) {
-    return [""];
-  }
+  return wrapLogicalLineWithWidths(line, firstWidth, restWidth);
+};
 
-  const rows: string[] = [];
-  let current = "";
-  let currentWidth = 0;
-
+const wrapLogicalLineWithWidths = (
+  line: string,
+  firstWidth: number,
+  restWidth: number,
+): string[] => {
+  if (!line) return [""];
+  const state: WrapState = { rows: [], current: "", currentWidth: 0 };
   for (const cluster of splitGraphemes(line)) {
-    const availableWidth = rows.length === 0 ? firstWidth : restWidth;
-    const clusterWidth = Math.max(1, stringWidth(cluster));
-    if (current && currentWidth + clusterWidth > availableWidth) {
-      rows.push(current);
-      current = cluster;
-      currentWidth = clusterWidth;
-      continue;
-    }
-
-    current += cluster;
-    currentWidth += clusterWidth;
+    appendCluster(state, cluster, state.rows.length === 0 ? firstWidth : restWidth);
   }
+  return finishWrapState(state);
+};
 
-  rows.push(current);
-  return rows;
+const appendCluster = (state: WrapState, cluster: string, width: number): void => {
+  const clusterWidth = Math.max(1, stringWidth(cluster));
+  if (state.current && state.currentWidth + clusterWidth > width) {
+    state.rows.push(state.current);
+    state.current = cluster;
+    state.currentWidth = clusterWidth;
+    return;
+  }
+  state.current += cluster;
+  state.currentWidth += clusterWidth;
+};
+
+const finishWrapState = (state: WrapState): string[] => {
+  state.rows.push(state.current);
+  return state.rows;
 };
 
 const splitGraphemes = (text: string): string[] => {

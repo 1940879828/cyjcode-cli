@@ -182,41 +182,42 @@ export function resolveInputBoxCommand(
   input: string,
   key: InputKeyLike,
 ): InputBoxCommand {
-  // 按了回车：如果带了 Shift 或 Meta → 插入换行符（多行输入），否则 → 提交。
-  if (key.return) {
-    return key.shift || key.meta ? editCommand(insertText("\n")) : { type: "submit" };
-  }
-  // 带 Ctrl/Meta → 删前一个词；否则 → 删一个字符（退格）。
+  if (key.return) return resolveReturnCommand(key);
   if (key.backspace) {
     return editCommand(deleteText(key.ctrl || key.meta ? "wordBefore" : "backward"));
   }
-  // 带 Meta → 删到行尾；否则 → 删右一个字符。
   if (key.delete) return editCommand(deleteText(key.meta ? "toLineEnd" : "forward"));
 
-  /**
-   * Home→行首、End→行尾、↑/↓→上/下移
-   * ←/→：带 Ctrl/Meta → 按词移动，否则 → 单字符移动
-   */
+  const navigation = resolveNavigationCommand(key);
+  if (navigation) return navigation;
+
+  if (key.ctrl) return editCommand(CTRL_SHORTCUTS[input.toLowerCase()] ?? ignore());
+  if (key.meta) return editCommand(META_SHORTCUTS[input.toLowerCase()] ?? ignore());
+  if (input.length > 0) return editCommand(insertText(input));
+
+  return editCommand(ignore());
+}
+
+function resolveReturnCommand(key: InputKeyLike): InputBoxCommand {
+  return key.shift || key.meta ? editCommand(insertText("\n")) : { type: "submit" };
+}
+
+function resolveNavigationCommand(key: InputKeyLike): InputBoxCommand | null {
   if (key.home) return editCommand(moveCursor("startOfLine"));
   if (key.end) return editCommand(moveCursor("endOfLine"));
   if (key.upArrow) return editCommand(resolveUpArrowEvent(key));
   if (key.downArrow) return editCommand(resolveDownArrowEvent(key));
-  if (key.leftArrow) {
-    return editCommand(moveCursor(key.ctrl || key.meta ? "previousWord" : "left"));
-  }
-  if (key.rightArrow) {
-    return editCommand(moveCursor(key.ctrl || key.meta ? "nextWord" : "right"));
-  }
+  if (key.leftArrow) return editCommand(resolveHorizontalMove(key, "left", "previousWord"));
+  if (key.rightArrow) return editCommand(resolveHorizontalMove(key, "right", "nextWord"));
+  return null;
+}
 
-  // 按了 Ctrl → 查 CTRL_SHORTCUTS 表，命中返回事件，未命中 ignore()
-  if (key.ctrl) return editCommand(CTRL_SHORTCUTS[input.toLowerCase()] ?? ignore());
-  // 按了 Meta → 查 META_SHORTCUTS 表，同上
-  if (key.meta) return editCommand(META_SHORTCUTS[input.toLowerCase()] ?? ignore());
-  // 如果确实输入了可见字符 → 作为文本插入
-  if (input.length > 0) return editCommand(insertText(input));
-
-  // 忽略比如按了 F1、方向键之外但没带修饰的键、无法识别的输入
-  return editCommand(ignore());
+function resolveHorizontalMove(
+  key: InputKeyLike,
+  plain: CursorMovement,
+  modified: CursorMovement,
+): InputBoxEvent {
+  return moveCursor(key.ctrl || key.meta ? modified : plain);
 }
 
 /**
@@ -233,39 +234,33 @@ export function reduceInputBoxState(
   context: InputBoxModelContext,
 ): InputBoxState {
   const { layout } = context;
-  switch (event.type) {
-    // 插入/粘贴文本
-    case "insertText":
-      return event.text.length === 0
-        // 文本为空 → 状态不变（unchanged）
-        ? unchanged(state)
-        // 否则 → 构造光标，执行 insert，生成新状态
-        : updateText(state, layout, (cursor) => cursor.insert(event.text));
-    // 移动光标
-    case "moveCursor":
-      // moveCursorBy 把 CursorMovement 分发到 TextCursor 的移动方法
-      return updateCursor(state, layout, (cursor) =>
-        moveCursorBy(cursor, event.movement),
-      );
-    // 删除文本
-    case "deleteText":
-      return updateText(state, layout, (cursor) =>
-        // deleteFromCursor 把 TextDeletion 分发到 TextCursor 的删除方法
-        deleteFromCursor(cursor, event.deletion),
-      );
-    // 历史浏览
-    case "upLineOrHistory":
-      return upLineOrHistoryState(state, context);
-    case "downLineOrHistory":
-      return downLineOrHistoryState(state, context);
-    // 重置
-    case "reset":
-      // 直接回到初始状态
-      return createInputBoxState();
-    //  忽略 什么都不做，返回原状态
-    case "ignore":
-      return unchanged(state);
-  }
+  if (event.type === "insertText") return reduceInsertText(state, layout, event.text);
+  if (event.type === "moveCursor") return reduceMoveCursor(state, layout, event.movement);
+  if (event.type === "deleteText") return reduceDeleteText(state, layout, event.deletion);
+  if (event.type === "upLineOrHistory") return upLineOrHistoryState(state, context);
+  if (event.type === "downLineOrHistory") return downLineOrHistoryState(state, context);
+  if (event.type === "reset") return createInputBoxState();
+  return unchanged(state);
+}
+
+function reduceInsertText(state: InputBoxState, layout: InputBoxLayout, text: string): InputBoxState {
+  return text.length === 0 ? unchanged(state) : updateText(state, layout, (cursor) => cursor.insert(text));
+}
+
+function reduceMoveCursor(
+  state: InputBoxState,
+  layout: InputBoxLayout,
+  movement: CursorMovement,
+): InputBoxState {
+  return updateCursor(state, layout, (cursor) => moveCursorBy(cursor, movement));
+}
+
+function reduceDeleteText(
+  state: InputBoxState,
+  layout: InputBoxLayout,
+  deletion: TextDeletion,
+): InputBoxState {
+  return updateText(state, layout, (cursor) => deleteFromCursor(cursor, deletion));
 }
 
 /**
@@ -494,24 +489,18 @@ const moveCursorBy = (
   cursor: TextCursor,
   movement: CursorMovement,
 ): TextCursor => {
-  switch (movement) {
-    case "left":
-      return cursor.left();
-    case "right":
-      return cursor.right();
-    case "up":
-      return cursor.up();
-    case "down":
-      return cursor.down();
-    case "startOfLine":
-      return cursor.startOfLine();
-    case "endOfLine":
-      return cursor.endOfLine();
-    case "previousWord":
-      return cursor.prevWord();
-    case "nextWord":
-      return cursor.nextWord();
-  }
+  return CURSOR_MOVEMENTS[movement](cursor);
+};
+
+const CURSOR_MOVEMENTS: Record<CursorMovement, (cursor: TextCursor) => TextCursor> = {
+  left: (cursor) => cursor.left(),
+  right: (cursor) => cursor.right(),
+  up: (cursor) => cursor.up(),
+  down: (cursor) => cursor.down(),
+  startOfLine: (cursor) => cursor.startOfLine(),
+  endOfLine: (cursor) => cursor.endOfLine(),
+  previousWord: (cursor) => cursor.prevWord(),
+  nextWord: (cursor) => cursor.nextWord(),
 };
 
 // 把 TextDeletion（文本删除枚举）"翻译"成 TextCursor 的具体删除方法调用

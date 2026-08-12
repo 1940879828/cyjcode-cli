@@ -26,6 +26,14 @@ export interface TextFileMetadata {
   lineEndings: LineEndings;
 }
 
+export interface CreateSnippetInput {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  content: string;
+  metadata: TextFileMetadata;
+}
+
 let nextSnippetIndex = 1;
 const snippets = new Map<string, FileSnippet>();
 const fileSnapshots = new Map<string, FileSnapshot>();
@@ -49,21 +57,15 @@ export function rememberFileSnapshot(filePath: string, metadata: TextFileMetadat
   });
 }
 
-export function createSnippet(
-  filePath: string,
-  startLine: number,
-  endLine: number,
-  content: string,
-  metadata: TextFileMetadata,
-): FileSnippet {
+export function createSnippet(input: CreateSnippetInput): FileSnippet {
   const snippet: FileSnippet = {
     id: `snippet_${nextSnippetIndex++}`,
-    filePath,
-    startLine,
-    endLine,
-    content,
-    timestamp: metadata.timestamp,
-    lineEndings: metadata.lineEndings,
+    filePath: input.filePath,
+    startLine: input.startLine,
+    endLine: input.endLine,
+    content: input.content,
+    timestamp: input.metadata.timestamp,
+    lineEndings: input.metadata.lineEndings,
   };
   snippets.set(snippet.id, snippet);
   return snippet;
@@ -141,12 +143,22 @@ export function buildDiffPreview(before: string, after: string, contextLines = 2
   const beforeEnd = Math.min(beforeLines.length, lastChanged.before + contextLines + 1);
   const afterEnd = Math.min(afterLines.length, lastChanged.after + contextLines + 1);
 
+  return formatDiffPreview({ beforeLines, afterLines, start, beforeEnd, afterEnd });
+}
+
+function formatDiffPreview(input: {
+  beforeLines: string[];
+  afterLines: string[];
+  start: number;
+  beforeEnd: number;
+  afterEnd: number;
+}): string {
   return [
     "--- before",
     "+++ after",
-    `@@ -${start + 1},${beforeEnd - start} +${start + 1},${afterEnd - start} @@`,
-    ...beforeLines.slice(start, beforeEnd).map((line) => `-${line}`),
-    ...afterLines.slice(start, afterEnd).map((line) => `+${line}`),
+    `@@ -${input.start + 1},${input.beforeEnd - input.start} +${input.start + 1},${input.afterEnd - input.start} @@`,
+    ...input.beforeLines.slice(input.start, input.beforeEnd).map((line) => `-${line}`),
+    ...input.afterLines.slice(input.start, input.afterEnd).map((line) => `+${line}`),
   ].join("\n");
 }
 

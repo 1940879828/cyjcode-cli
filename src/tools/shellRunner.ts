@@ -27,6 +27,52 @@ export interface ShellRunResult {
   error?: string;
 }
 
+interface ShellProcessContext {
+  marker: string;
+  timeoutMs: number;
+  startCwd: string;
+  shell: Exclude<ShellKind, "auto">;
+  shellPath: string;
+}
+
+interface CompletedResultInput {
+  rawOutput: string;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  timedOut: boolean;
+  context: ShellProcessContext;
+}
+
+interface ProcessWaitState {
+  output: string;
+  timedOut: boolean;
+  timeout?: NodeJS.Timeout;
+}
+
+interface CompletedProcessInput {
+  context: ShellProcessContext;
+  state: ProcessWaitState;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+}
+
+interface SpawnShellInput {
+  shellPath: string;
+  shell: Exclude<ShellKind, "auto">;
+  command: string;
+  marker: string;
+  cwd: string;
+}
+
+interface ShellExecution {
+  command: string;
+  shell: Exclude<ShellKind, "auto">;
+  shellPath: string;
+  timeoutMs: number;
+  startCwd: string;
+  marker: string;
+}
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_CHARS = 30_000;
@@ -34,29 +80,48 @@ const MAX_OUTPUT_CHARS = 30_000;
 let sessionCwd: string | undefined;
 
 export async function runShellCommand(options: ShellRunOptions): Promise<ShellRunResult> {
-  const command = options.command.trim();
-  const selectedShell = selectShell(options.shell ?? "auto");
-  const resolvedShell = resolveShellPath(selectedShell);
-  const timeoutMs = clampTimeout(options.timeoutMs);
-  const startCwd = normalizeStartCwd();
+  const execution = prepareShellExecution(options);
 
-  if (!resolvedShell) {
-    return buildUnavailableResult(selectedShell, startCwd);
-  }
+  if (!execution.shellPath) return buildUnavailableResult(execution.shell, execution.startCwd);
 
-  const marker = `__TIGACODE_CWD_${crypto.randomUUID()}__`;
-  const spawned = spawn(resolvedShell, buildShellArgs(selectedShell, command, marker), {
-    cwd: startCwd,
-    windowsHide: true,
-    detached: process.platform !== "win32",
-  });
+  const spawned = spawnShellProcess(buildSpawnInput(execution));
 
   return await waitForProcess(spawned, {
-    marker,
-    timeoutMs,
-    startCwd,
-    shell: selectedShell,
-    shellPath: resolvedShell,
+    marker: execution.marker,
+    timeoutMs: execution.timeoutMs,
+    startCwd: execution.startCwd,
+    shell: execution.shell,
+    shellPath: execution.shellPath,
+  });
+}
+
+function prepareShellExecution(options: ShellRunOptions): ShellExecution {
+  const shell = selectShell(options.shell ?? "auto");
+  return {
+    command: options.command.trim(),
+    shell,
+    shellPath: resolveShellPath(shell) ?? "",
+    timeoutMs: clampTimeout(options.timeoutMs),
+    startCwd: normalizeStartCwd(),
+    marker: `__TIGACODE_CWD_${crypto.randomUUID()}__`,
+  };
+}
+
+function buildSpawnInput(execution: ShellExecution): SpawnShellInput {
+  return {
+    shellPath: execution.shellPath,
+    shell: execution.shell,
+    command: execution.command,
+    marker: execution.marker,
+    cwd: execution.startCwd,
+  };
+}
+
+function spawnShellProcess(input: SpawnShellInput): ReturnType<typeof spawn> {
+  return spawn(input.shellPath, buildShellArgs(input.shell, input.command, input.marker), {
+    cwd: input.cwd,
+    windowsHide: true,
+    detached: process.platform !== "win32",
   });
 }
 
@@ -178,98 +243,136 @@ function buildBashScript(command: string, marker: string): string {
 
 function waitForProcess(
   child: ReturnType<typeof spawn>,
-  context: {
-    marker: string;
-    timeoutMs: number;
-    startCwd: string;
-    shell: Exclude<ShellKind, "auto">;
-    shellPath: string;
-  },
+  context: ShellProcessContext,
 ): Promise<ShellRunResult> {
   return new Promise((resolve) => {
-    let output = "";
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      killProcessTree(child.pid);
-    }, context.timeoutMs);
-
-    child.stdout?.on("data", (chunk: Buffer) => {
-      output += chunk.toString("utf-8");
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      output += chunk.toString("utf-8");
-    });
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      resolve(buildSpawnErrorResult(error, context));
-    });
-    child.on("close", (exitCode, signal) => {
-      clearTimeout(timeout);
-      resolve(buildCompletedResult(output, exitCode, signal, timedOut, context));
-    });
+    const state = createWaitState(child, context.timeoutMs);
+    attachOutputListeners(child, state);
+    attachCompletionListeners({ child, context, state, resolve });
   });
 }
 
+function createWaitState(child: ReturnType<typeof spawn>, timeoutMs: number): ProcessWaitState {
+  const state: ProcessWaitState = { output: "", timedOut: false };
+  state.timeout = startProcessTimeout(child, timeoutMs, () => {
+    state.timedOut = true;
+  });
+  return state;
+}
+
+function attachOutputListeners(child: ReturnType<typeof spawn>, state: ProcessWaitState): void {
+  const appendOutput = (chunk: Buffer): void => {
+    state.output += chunk.toString("utf-8");
+  };
+  child.stdout?.on("data", appendOutput);
+  child.stderr?.on("data", appendOutput);
+}
+
+function attachCompletionListeners(input: {
+  child: ReturnType<typeof spawn>;
+  context: ShellProcessContext;
+  state: ProcessWaitState;
+  resolve: (result: ShellRunResult) => void;
+}): void {
+  input.child.on("error", (error) => {
+    clearProcessTimeout(input.state);
+    input.resolve(buildSpawnErrorResult(error, input.context));
+  });
+  input.child.on("close", (exitCode, signal) => {
+    clearProcessTimeout(input.state);
+    input.resolve(buildCompletedProcessResult({ context: input.context, state: input.state, exitCode, signal }));
+  });
+}
+
+function clearProcessTimeout(state: ProcessWaitState): void {
+  if (state.timeout) clearTimeout(state.timeout);
+}
+
+function buildCompletedProcessResult(input: CompletedProcessInput): ShellRunResult {
+  return buildCompletedResult({
+    rawOutput: input.state.output,
+    exitCode: input.exitCode,
+    signal: input.signal,
+    timedOut: input.state.timedOut,
+    context: input.context,
+  });
+}
+
+function startProcessTimeout(
+  child: ReturnType<typeof spawn>,
+  timeoutMs: number,
+  markTimedOut: () => void,
+): NodeJS.Timeout {
+  return setTimeout(() => {
+    markTimedOut();
+    killProcessTree(child.pid);
+  }, timeoutMs);
+}
+
 function killProcessTree(pid: number | undefined): void {
-  if (pid === undefined) {
-    return;
-  }
+  if (pid === undefined) return;
   if (process.platform === "win32") {
-    spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+    killWindowsProcessTree(pid);
     return;
   }
+  killPosixProcessTree(pid);
+}
+
+function killWindowsProcessTree(pid: number): void {
+  spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+}
+
+function killPosixProcessTree(pid: number): void {
   try {
     process.kill(-pid, "SIGTERM");
   } catch {
     process.kill(pid, "SIGTERM");
   }
-  const forceKill = setTimeout(() => {
-    try {
-      process.kill(-pid, "SIGKILL");
-    } catch {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        // Process already exited.
-      }
-    }
-  }, 500);
+  const forceKill = setTimeout(() => forceKillPosixProcessTree(pid), 500);
   forceKill.unref();
 }
 
-function buildCompletedResult(
-  rawOutput: string,
-  exitCode: number | null,
-  signal: NodeJS.Signals | null,
-  timedOut: boolean,
-  context: {
-    marker: string;
-    startCwd: string;
-    shell: Exclude<ShellKind, "auto">;
-    shellPath: string;
-  },
-): ShellRunResult {
-  const extracted = extractCwd(rawOutput, context.marker);
-  const nextCwd = extracted.cwd ?? context.startCwd;
-  const workspaceRoot = process.cwd();
-  const cwdReset =
-    !isInsideWorkspace(nextCwd, workspaceRoot) || !fs.existsSync(nextCwd);
-  sessionCwd = cwdReset ? workspaceRoot : nextCwd;
+function forceKillPosixProcessTree(pid: number): void {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    tryKillProcess(pid, "SIGKILL");
+  }
+}
+
+function tryKillProcess(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // Process already exited.
+  }
+}
+
+function buildCompletedResult(input: CompletedResultInput): ShellRunResult {
+  const extracted = extractCwd(input.rawOutput, input.context.marker);
+  const cwdState = updateSessionCwd(extracted.cwd, input.context.startCwd);
   const output = truncateOutput(extracted.output);
   return {
-    success: !timedOut && exitCode === 0,
+    success: !input.timedOut && input.exitCode === 0,
     output: output.text,
-    exitCode,
-    signal,
-    timedOut,
-    cwd: sessionCwd,
-    startCwd: context.startCwd,
-    shell: context.shell,
-    shellPath: context.shellPath,
+    exitCode: input.exitCode,
+    signal: input.signal,
+    timedOut: input.timedOut,
+    cwd: cwdState.cwd,
+    startCwd: input.context.startCwd,
+    shell: input.context.shell,
+    shellPath: input.context.shellPath,
     truncated: output.truncated,
-    cwdReset,
+    cwdReset: cwdState.reset,
   };
+}
+
+function updateSessionCwd(cwd: string | undefined, startCwd: string): { cwd: string; reset: boolean } {
+  const nextCwd = cwd ?? startCwd;
+  const workspaceRoot = process.cwd();
+  const reset = !isInsideWorkspace(nextCwd, workspaceRoot) || !fs.existsSync(nextCwd);
+  sessionCwd = reset ? workspaceRoot : nextCwd;
+  return { cwd: sessionCwd, reset };
 }
 
 function extractCwd(output: string, marker: string): { output: string; cwd?: string } {
@@ -313,25 +416,30 @@ function buildUnavailableResult(shell: Exclude<ShellKind, "auto">, startCwd: str
 
 function buildSpawnErrorResult(
   error: Error,
-  context: {
-    startCwd: string;
-    shell: Exclude<ShellKind, "auto">;
-    shellPath: string;
-  },
+  context: ShellProcessContext,
 ): ShellRunResult {
-  return {
+  return withShellContext(context, {
     success: false,
     output: "",
     exitCode: null,
     signal: null,
     timedOut: false,
+    truncated: false,
+    cwdReset: false,
+    error: error.message,
+  });
+}
+
+function withShellContext(
+  context: ShellProcessContext,
+  result: Omit<ShellRunResult, "cwd" | "startCwd" | "shell" | "shellPath">,
+): ShellRunResult {
+  return {
+    ...result,
     cwd: context.startCwd,
     startCwd: context.startCwd,
     shell: context.shell,
     shellPath: context.shellPath,
-    truncated: false,
-    cwdReset: false,
-    error: error.message,
   };
 }
 

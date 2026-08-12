@@ -50,25 +50,26 @@ function buildClient(): OpenAI {
 }
 
 function toOpenAIMessages(messages: ChatMessage[]): OpenAI.Chat.ChatCompletionMessageParam[] {
-  return messages.map((msg) => {
-    const base: Record<string, unknown> = {
-      role: msg.role,
-      content: msg.content,
-    };
-    if (msg.name) base.name = msg.name;
-    if (msg.tool_call_id) base.tool_call_id = msg.tool_call_id;
-    if (msg.tool_calls) {
-      base.tool_calls = msg.tool_calls.map((tc) => ({
-        id: tc.id,
-        type: "function" as const,
-        function: {
-          name: tc.function.name,
-          arguments: tc.function.arguments,
-        },
-      }));
-    }
-    return base as unknown as OpenAI.Chat.ChatCompletionMessageParam;
-  });
+  return messages.map(toOpenAIMessage);
+}
+
+function toOpenAIMessage(msg: ChatMessage): OpenAI.Chat.ChatCompletionMessageParam {
+  const base: Record<string, unknown> = { role: msg.role, content: msg.content };
+  if (msg.name) base.name = msg.name;
+  if (msg.tool_call_id) base.tool_call_id = msg.tool_call_id;
+  if (msg.tool_calls) base.tool_calls = msg.tool_calls.map(toOpenAIToolCall);
+  return base as unknown as OpenAI.Chat.ChatCompletionMessageParam;
+}
+
+function toOpenAIToolCall(toolCall: ToolCall): Record<string, unknown> {
+  return {
+    id: toolCall.id,
+    type: "function" as const,
+    function: {
+      name: toolCall.function.name,
+      arguments: toolCall.function.arguments,
+    },
+  };
 }
 
 export async function* streamChat(
@@ -76,21 +77,23 @@ export async function* streamChat(
 ): AsyncGenerator<StreamEvent> {
   try {
     const stream = await createChatStream(options);
-    const state = createStreamState();
-
-    for await (const chunk of stream) {
-      for (const event of consumeChunk(chunk, state)) {
-        yield event;
-      }
-    }
-
-    yield { type: "done", message: buildFinalMessage(state) };
+    yield* consumeChatStream(stream);
   } catch (error) {
     yield {
       type: "error",
       error: error instanceof Error ? error : new Error(String(error)),
     };
   }
+}
+
+async function* consumeChatStream(stream: AsyncIterable<ChatChunk>): AsyncGenerator<StreamEvent> {
+  const state = createStreamState();
+  for await (const chunk of stream) {
+    for (const event of consumeChunk(chunk, state)) {
+      yield event;
+    }
+  }
+  yield { type: "done", message: buildFinalMessage(state) };
 }
 
 async function createChatStream(

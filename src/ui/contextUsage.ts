@@ -61,12 +61,8 @@ export function formatContextUsageBar(
   promptTokens: number,
   contextWindow: number,
 ): ContextUsageBarView {
-  const safePromptTokens = Number.isFinite(promptTokens)
-    ? Math.max(0, promptTokens)
-    : 0;
-  const ratio = Number.isFinite(contextWindow) && contextWindow > 0
-    ? safePromptTokens / contextWindow
-    : 0;
+  const safePromptTokens = normalizeTokenCount(promptTokens);
+  const ratio = getUsageRatio(safePromptTokens, contextWindow);
   const cappedRatio = Math.min(1, ratio);
   const filledBlocks = Math.round(cappedRatio * CONTEXT_BAR_WIDTH);
   const percent = Math.min(100, ratio * 100).toFixed(1);
@@ -78,6 +74,16 @@ export function formatContextUsageBar(
     unusedBackgroundColor: BAR_UNUSED_BACKGROUND,
     suffix: `${formatTokenCount(safePromptTokens)}/${formatTokenCount(contextWindow)} ${percent}%`,
   };
+}
+
+function normalizeTokenCount(tokens: number): number {
+  return Number.isFinite(tokens) ? Math.max(0, tokens) : 0;
+}
+
+function getUsageRatio(promptTokens: number, contextWindow: number): number {
+  return Number.isFinite(contextWindow) && contextWindow > 0
+    ? promptTokens / contextWindow
+    : 0;
 }
 
 function toFallbackBar(bar: ContextUsageBarView): string {
@@ -98,9 +104,13 @@ export function selectContextUsageView(
     return { text: "上下文 统计失败", color: "red" };
   }
 
+  return selectReadyContextUsageView(state.usage, model);
+}
+
+function selectReadyContextUsageView(usage: TokenUsage, model: string): ContextUsageView {
   const contextWindow = getContextWindow(model);
-  const ratio = state.usage.promptTokens / contextWindow;
-  const bar = formatContextUsageBar(state.usage.promptTokens, contextWindow);
+  const ratio = usage.promptTokens / contextWindow;
+  const bar = formatContextUsageBar(usage.promptTokens, contextWindow);
   return {
     text: "上下文",
     color: getUsageColor(ratio),

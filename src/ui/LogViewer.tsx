@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { getTodayLogPath, readLogLines, type LogEntry } from "../utils/logger.js";
 import { APP } from "../config/app.js";
@@ -16,36 +16,39 @@ const EVENT_COLORS: Record<string, string> = {
   error: "red",
 };
 
+interface LogBatch {
+  entries: LogEntry[];
+  nextOffset: number;
+}
+
+interface LogEntryRowProps {
+  entry: LogEntry;
+}
+
 const LogViewer = () => {
+  const entries = useLogEntries();
+
+  return (
+    <Box flexDirection="column" padding={1}>
+      <LogHeader />
+      <LogStatus count={entries.length} />
+      <Separator />
+      <LogEntries entries={entries} />
+    </Box>
+  );
+};
+
+function useLogEntries(): LogEntry[] {
   const [entries, setEntries] = useState<LogEntry[]>([]);
 
   useEffect(() => {
     let offset = 0;
-
-    const filePath = getTodayLogPath();
-    // 取文件名，因为 readLogLines 需要的是相对于日志目录的文件名
-    const fileName = filePath.split(/[/\\]/).pop()!;
-
+    const fileName = getTodayLogFileName();
     const poll = () => {
-      try {
-        const lines = readLogLines(fileName, offset);
-        if (lines.length === 0) return;
-
-        const parsed: LogEntry[] = [];
-        for (const line of lines) {
-          try {
-            parsed.push(JSON.parse(line) as LogEntry);
-          } catch {
-            // 跳过无效行
-          }
-        }
-
-        if (parsed.length === 0) return;
-        offset += lines.length;
-        setEntries((prev) => [...prev, ...parsed]);
-      } catch {
-        // 文件可能还不存在
-      }
+      const batch = readLogBatch(fileName, offset);
+      if (!batch) return;
+      offset = batch.nextOffset;
+      setEntries((currentEntries) => [...currentEntries, ...batch.entries]);
     };
 
     poll();
@@ -53,47 +56,90 @@ const LogViewer = () => {
     return () => clearInterval(timer);
   }, []);
 
-  return (
-    <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
-        <Text color="cyan" bold>📋 {APP.name} 日志查看器</Text>
-        <Text color="gray" dimColor>{" "}— 实时监控日志流</Text>
+  return entries;
+}
+
+function getTodayLogFileName(): string {
+  return getTodayLogPath().split(/[/\\]/).pop()!;
+}
+
+function readLogBatch(fileName: string, offset: number): LogBatch | null {
+  try {
+    const lines = readLogLines(fileName, offset);
+    if (lines.length === 0) return null;
+
+    const entries = parseLogLines(lines);
+    if (entries.length === 0) return null;
+
+    return { entries, nextOffset: offset + lines.length };
+  } catch {
+    return null;
+  }
+}
+
+function parseLogLines(lines: readonly string[]): LogEntry[] {
+  return lines.flatMap((line) => {
+    const entry = parseLogLine(line);
+    return entry ? [entry] : [];
+  });
+}
+
+function parseLogLine(line: string): LogEntry | null {
+  try {
+    return JSON.parse(line) as LogEntry;
+  } catch {
+    return null;
+  }
+}
+
+const LogHeader = () => (
+  <Box marginBottom={1}>
+    <Text color="cyan" bold>📋 {APP.name} 日志查看器</Text>
+    <Text color="gray" dimColor>{" "}— 实时监控日志流</Text>
+  </Box>
+);
+
+const LogStatus = ({ count }: { count: number }) => (
+  <Box marginBottom={1}>
+    <Text color="gray">
+      {count} 条日志 | 按 Ctrl+C 退出
+    </Text>
+  </Box>
+);
+
+const LogEntries = ({ entries }: { entries: readonly LogEntry[] }) => (
+  <Box flexDirection="column">
+    {entries.length === 0 && (
+      <Box>
+        <Text color="gray" dimColor>等待日志……</Text>
       </Box>
+    )}
 
-      <Box marginBottom={1}>
-        <Text color="gray">
-          {entries.length} 条日志 | 按 Ctrl+C 退出
-        </Text>
-      </Box>
+    {entries.slice(-MAX_VISIBLE_LOGS).map((entry, index) => (
+      <LogEntryRow key={index} entry={entry} />
+    ))}
+  </Box>
+);
 
-      <Separator />
-
-      <Box flexDirection="column">
-        {entries.length === 0 && (
-          <Box>
-            <Text color="gray" dimColor>等待日志……</Text>
-          </Box>
-        )}
-
-        {entries.slice(-MAX_VISIBLE_LOGS).map((entry, i) => (
-          <Box key={i} flexDirection="column" marginBottom={1}>
-            <Box>
-              <Text color="gray" dimColor>{timestampToTime(entry.timestamp)} </Text>
-              <Text color={EVENT_COLORS[entry.type] || "white"} bold>
-                {entry.type}
-              </Text>
-            </Box>
-            <Box paddingLeft={4}>
-              <Text color={EVENT_COLORS[entry.type] || "white"}>
-                {summarize(entry)}
-              </Text>
-            </Box>
-          </Box>
-        ))}
-      </Box>
+const LogEntryRow = ({ entry }: LogEntryRowProps) => (
+  <Box flexDirection="column" marginBottom={1}>
+    <Box>
+      <Text color="gray" dimColor>{timestampToTime(entry.timestamp)} </Text>
+      <Text color={getEventColor(entry)} bold>
+        {entry.type}
+      </Text>
     </Box>
-  );
-};
+    <Box paddingLeft={4}>
+      <Text color={getEventColor(entry)}>
+        {summarize(entry)}
+      </Text>
+    </Box>
+  </Box>
+);
+
+function getEventColor(entry: LogEntry): string {
+  return EVENT_COLORS[entry.type] || "white";
+}
 
 /** 将 ISO 时间戳转为 HH:MM:SS */
 function timestampToTime(ts: string): string {

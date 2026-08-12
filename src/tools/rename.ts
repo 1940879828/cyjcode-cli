@@ -53,21 +53,31 @@ function parseRenameArgs(
   if (!oldPath) return { success: false, error: "oldPath 参数不能为空" };
   if (!newPath) return { success: false, error: "newPath 参数不能为空" };
 
+  const resolved = resolveRenamePaths(oldPath, newPath);
+  if (!resolved.success) return resolved;
+
+  return { success: true, value: buildRenameArgs(oldPath, newPath, resolved) };
+}
+
+function buildRenameArgs(
+  oldPath: string,
+  newPath: string,
+  resolved: { oldPath: string; newPath: string },
+): RenameArgs {
+  return { oldPath, newPath, resolvedOld: resolved.oldPath, resolvedNew: resolved.newPath };
+}
+
+function resolveRenamePaths(
+  oldPath: string,
+  newPath: string,
+): { success: true; oldPath: string; newPath: string } | { success: false; error: string } {
   const resolvedOld = resolveInsideWorkspace(oldPath);
   if (!resolvedOld.success) return resolvedOld;
 
   const resolvedNew = resolveInsideWorkspace(newPath);
   if (!resolvedNew.success) return resolvedNew;
 
-  return {
-    success: true,
-    value: {
-      oldPath,
-      newPath,
-      resolvedOld: resolvedOld.path,
-      resolvedNew: resolvedNew.path,
-    },
-  };
+  return { success: true, oldPath: resolvedOld.path, newPath: resolvedNew.path };
 }
 
 function renamePath(args: RenameArgs): ToolResult {
