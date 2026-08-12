@@ -57,7 +57,7 @@ const ROLE_LABELS: Record<ChatEntry["role"], string> = {
   user: "You",
   assistant: "",
   thinking: "Thinking",
-  tool_call: "Tool",
+  tool_call: "",
   tool_result: "Result",
   error: "Error",
 };
@@ -125,9 +125,6 @@ export const MessageRow = ({ entry }: { entry: MessageRowEntry }) => (
 );
 
 const renderContent = (entry: MessageRowEntry) => {
-  if (entry.role === "tool_call" && entry.toolCall) {
-    return <ToolCallContent toolCall={entry.toolCall} />;
-  }
   if (entry.role === "tool_result" && entry.toolResult) {
     return <ToolResultContent toolResult={entry.toolResult} content={entry.content} />;
   }
@@ -137,15 +134,6 @@ const renderContent = (entry: MessageRowEntry) => {
     </Text>
   );
 };
-
-const ToolCallContent = ({ toolCall }: { toolCall: ChatEntry["toolCall"] }) => (
-  <Box flexDirection="column">
-    <Text color="yellow">{toolCall?.name}</Text>
-    <Text color="gray" dimColor>
-      {toolCall?.arguments ? JSON.stringify(toolCall.arguments, null, 2) : ""}
-    </Text>
-  </Box>
-);
 
 const ToolResultContent = ({
   toolResult,

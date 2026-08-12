@@ -4,6 +4,7 @@ import { clearHistory } from "../../agent/history.js";
 import type { ToolResult } from "../../tools/types.js";
 import { getRecordPath, recordAgentLoop, getMockPath, mockAgentLoop } from "../../devmock/index.js";
 import type { ContextUsageState } from "../contextUsage.js";
+import { formatToolDisplay, formatToolErrorDisplay } from "../toolDisplay.js";
 
 export interface ToolCallEntry {
   callId: string;
@@ -29,14 +30,14 @@ export interface ChatEntry {
    * user 用户发送的问题
    * assistant 模型的最终文本回复
    * thinking 模型的推理过程
-   * tool_call 模型决定调用某个工具，显示工具名和参数
-   * tool_result 工具执行后的返回结果
+   * tool_call 工具执行摘要，不展示大段参数或结果
+   * tool_result 保留给旧消息类型兼容
    * error 错误信息（LLM 报错、工具执行失败、超过轮数限制等）
    */
   role: "system" | "user" | "assistant" | "thinking" | "tool_call" | "tool_result" | "error";
   // 消息的文本内容
   content: string;
-  // 仅 role === "tool_call" 时携带工具调用信息
+  // 仅内部兼容旧渲染路径；新工具摘要直接使用 content
   toolCall?: ToolCallEntry;
   // 仅 role === "tool_result" 时携带工具执行结果
   toolResult?: ToolResultEntry;
@@ -90,6 +91,7 @@ export function useChat() {
   const consumeEvents = async (text: string) => {
     let buffer = "";
     let reasoning = "";
+    const pendingToolCalls = new Map<string, ToolCallEntry>();
     const recordPath = getRecordPath();
     const mockPath = getMockPath();
     const generator = mockPath
@@ -112,25 +114,36 @@ export function useChat() {
           setStreamingText(buffer);
           break;
 
-        // 写入 entries，立即显示 工具调用
+        // 工具结果会携带更多 metadata，UI 等结果回来后只显示一行摘要。
         case "tool_call":
-          append(
-            makeEntry("tool_call", `调用工具: ${event.name}`, {
-              toolCall: { callId: event.callId, name: event.name, arguments: event.arguments },
-            }),
-          );
+          pendingToolCalls.set(event.callId, {
+            callId: event.callId,
+            name: event.name,
+            arguments: event.arguments,
+          });
           break;
 
-        // 写入 entries，立即显示 工具调用的结果
-        case "tool_result":
+        // UI 只显示工具摘要，完整结果仍留在 agent history 里给模型使用。
+        case "tool_result": {
+          const toolCall = pendingToolCalls.get(event.callId) ?? {
+            callId: event.callId,
+            name: event.name,
+            arguments: {},
+          };
+          pendingToolCalls.delete(event.callId);
+          const context = {
+            name: event.name,
+            arguments: toolCall.arguments,
+            result: event.result,
+          };
           append(
             makeEntry(
-              "tool_result",
-              event.result.success ? event.result.data || "成功" : `错误: ${event.result.error}`,
-              { toolResult: { callId: event.callId, name: event.name, result: event.result } },
+              event.result.success ? "tool_call" : "error",
+              event.result.success ? formatToolDisplay(context) : formatToolErrorDisplay(context),
             ),
           );
           break;
+        }
 
         case "usage":
           setContextUsage({ status: "ready", usage: event.usage });
