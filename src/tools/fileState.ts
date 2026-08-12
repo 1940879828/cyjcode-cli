@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import path from "node:path";
+export { resolveInsideWorkspace } from "./workspacePath.js";
 
 type LineEndings = "LF" | "CRLF";
 
@@ -29,22 +29,6 @@ export interface TextFileMetadata {
 let nextSnippetIndex = 1;
 const snippets = new Map<string, FileSnippet>();
 const fileSnapshots = new Map<string, FileSnapshot>();
-
-export function resolveInsideWorkspace(inputPath: string): { success: true; path: string } | { success: false; error: string } {
-  const workspaceRoot = process.cwd();
-  const resolved = path.resolve(inputPath);
-  const relative = path.relative(workspaceRoot, resolved);
-  const outsideWorkspace = relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
-
-  if (outsideWorkspace) {
-    return {
-      success: false,
-      error: `路径穿越拒绝: ${inputPath}`,
-    };
-  }
-
-  return { success: true, path: resolved };
-}
 
 export function readTextFileMetadata(filePath: string): TextFileMetadata {
   const content = fs.readFileSync(filePath, "utf-8");

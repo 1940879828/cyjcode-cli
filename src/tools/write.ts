@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Tool, ToolResult } from "./types.js";
+import { resolveInsideWorkspace } from "./workspacePath.js";
 
 const write: Tool = {
   name: "write",
@@ -22,45 +23,12 @@ const write: Tool = {
   },
 
   execute(args: Record<string, unknown>): ToolResult {
-    const filePath = args.filePath as string;
-    const content = args.content as string;
+    const parsed = parseWriteArgs(args);
 
-    if (!filePath) {
-      return {
-        success: false,
-        error: "filePath 参数不能为空",
-      };
-    }
-    if (content === undefined || content === null) {
-      return {
-        success: false,
-        error: "content 参数不能为空",
-      };
-    }
-
-    // 安全检查
-    const resolved = path.resolve(filePath);
-    const cwd = process.cwd();
-    if (!resolved.startsWith(cwd)) {
-      return {
-        success: false,
-        error: `路径穿越拒绝: ${filePath}`,
-      };
-    }
+    if (!parsed.success) return { success: false, error: parsed.error };
 
     try {
-      // 确保父目录存在
-      const dir = path.dirname(resolved);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      fs.writeFileSync(resolved, content, "utf-8");
-      const size = Buffer.byteLength(content, "utf-8");
-      return {
-        success: true,
-        data: `成功写入 ${filePath} (${size} 字节)`,
-      };
+      return writeFile(parsed.value);
     } catch (error) {
       return {
         success: false,
@@ -69,5 +37,48 @@ const write: Tool = {
     }
   },
 };
+
+interface WriteArgs {
+  filePath: string;
+  content: string;
+  resolvedPath: string;
+}
+
+function parseWriteArgs(
+  args: Record<string, unknown>,
+): { success: true; value: WriteArgs } | { success: false; error: string } {
+  const filePath = typeof args.filePath === "string" ? args.filePath : "";
+  const content = typeof args.content === "string" ? args.content : "";
+
+  if (!filePath) return { success: false, error: "filePath 参数不能为空" };
+  if (args.content === undefined || args.content === null) {
+    return { success: false, error: "content 参数不能为空" };
+  }
+  if (typeof args.content !== "string") {
+    return { success: false, error: "content 参数必须是字符串" };
+  }
+
+  const resolved = resolveInsideWorkspace(filePath);
+  if (!resolved.success) return resolved;
+
+  return {
+    success: true,
+    value: { filePath, content, resolvedPath: resolved.path },
+  };
+}
+
+function writeFile(args: WriteArgs): ToolResult {
+  const dir = path.dirname(args.resolvedPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  fs.writeFileSync(args.resolvedPath, args.content, "utf-8");
+  const size = Buffer.byteLength(args.content, "utf-8");
+  return {
+    success: true,
+    data: `成功写入 ${args.filePath} (${size} 字节)`,
+  };
+}
 
 export default write;

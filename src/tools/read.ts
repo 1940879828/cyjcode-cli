@@ -4,10 +4,10 @@ import {
   formatWithLineNumbers,
   readTextFileMetadata,
   rememberFileSnapshot,
-  resolveInsideWorkspace,
   splitLines,
 } from "./fileState.js";
 import type { Tool, ToolResult } from "./types.js";
+import { resolveInsideWorkspace } from "./workspacePath.js";
 
 const read: Tool = {
   name: "read",
@@ -33,94 +33,108 @@ const read: Tool = {
   },
 
   execute(args: Record<string, unknown>): ToolResult {
-    const filePath = args.filePath as string;
-    const offset = args.offset as number | undefined;
-    const limit = args.limit as number | undefined;
+    const parsed = parseReadArgs(args);
+    if (!parsed.success) return { success: false, error: parsed.error };
 
-    if (!filePath) {
-      return {
-        success: false,
-        error: "filePath 参数不能为空",
-      };
-    }
+    const resolved = resolveInsideWorkspace(parsed.value.filePath);
+    if (!resolved.success) return { success: false, error: resolved.error };
 
-    const resolved = resolveInsideWorkspace(filePath);
-    if (!resolved.success) {
-      return {
-        success: false,
-        error: resolved.error,
-      };
-    }
-
-    try {
-      if (!fs.existsSync(resolved.path)) {
-        return {
-          success: false,
-          error: `文件不存在: ${filePath}`,
-        };
-      }
-
-      const stat = fs.statSync(resolved.path);
-      if (stat.isDirectory()) {
-        return {
-          success: false,
-          error: `是目录而非文件: ${filePath}`,
-        };
-      }
-
-      // 文件大小限制：最多 1MB
-      if (stat.size > 1024 * 1024) {
-        return {
-          success: false,
-          error: `文件过大 (${(stat.size / 1024).toFixed(1)}KB)，超过 1MB 限制`,
-        };
-      }
-
-      const metadata = readTextFileMetadata(resolved.path);
-      rememberFileSnapshot(resolved.path, metadata);
-      const lines = splitLines(metadata.content);
-
-      const parsedRange = parseReadRange(offset, limit, lines.length);
-      if (!parsedRange.success) {
-        return {
-          success: false,
-          error: parsedRange.error,
-        };
-      }
-
-      const { startLine, endLineExclusive } = parsedRange;
-      const sliced = lines.slice(startLine, endLineExclusive);
-      const displayStartLine = startLine + 1;
-      const displayEndLine = displayStartLine + sliced.length - 1;
-      const snippet = createSnippet(
-        resolved.path,
-        displayStartLine,
-        displayEndLine,
-        sliced.join("\n"),
-        metadata,
-      );
-      const numbered = metadata.content === "" ? "" : formatWithLineNumbers(sliced, displayStartLine);
-
-      return {
-        success: true,
-        data: numbered || "(空文件)",
-        metadata: {
-          snippet: {
-            id: snippet.id,
-            filePath: snippet.filePath,
-            startLine: snippet.startLine,
-            endLine: snippet.endLine,
-          },
-        },
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    return readFile(parsed.value, resolved.path);
   },
 };
+
+interface ReadArgs {
+  filePath: string;
+  offset?: number;
+  limit?: number;
+}
+
+function parseReadArgs(
+  args: Record<string, unknown>,
+): { success: true; value: ReadArgs } | { success: false; error: string } {
+  const filePath = typeof args.filePath === "string" ? args.filePath : "";
+  if (!filePath) return { success: false, error: "filePath 参数不能为空" };
+
+  return {
+    success: true,
+    value: {
+      filePath,
+      offset: typeof args.offset === "number" ? args.offset : undefined,
+      limit: typeof args.limit === "number" ? args.limit : undefined,
+    },
+  };
+}
+
+function readFile(args: ReadArgs, resolvedPath: string): ToolResult {
+  try {
+    const target = inspectReadTarget(args.filePath, resolvedPath);
+    if (!target.success) return { success: false, error: target.error };
+
+    const metadata = readTextFileMetadata(resolvedPath);
+    rememberFileSnapshot(resolvedPath, metadata);
+    return buildReadResult(args, resolvedPath, metadata);
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function inspectReadTarget(
+  filePath: string,
+  resolvedPath: string,
+): { success: true } | { success: false; error: string } {
+  if (!fs.existsSync(resolvedPath)) {
+    return { success: false, error: `文件不存在: ${filePath}` };
+  }
+  const stat = fs.statSync(resolvedPath);
+  if (stat.isDirectory()) {
+    return { success: false, error: `是目录而非文件: ${filePath}` };
+  }
+  if (stat.size > 1024 * 1024) {
+    return {
+      success: false,
+      error: `文件过大 (${(stat.size / 1024).toFixed(1)}KB)，超过 1MB 限制`,
+    };
+  }
+  return { success: true };
+}
+
+function buildReadResult(
+  args: ReadArgs,
+  resolvedPath: string,
+  metadata: ReturnType<typeof readTextFileMetadata>,
+): ToolResult {
+  const lines = splitLines(metadata.content);
+  const parsedRange = parseReadRange(args.offset, args.limit, lines.length);
+  if (!parsedRange.success) return { success: false, error: parsedRange.error };
+
+  const { startLine, endLineExclusive } = parsedRange;
+  const sliced = lines.slice(startLine, endLineExclusive);
+  const displayStartLine = startLine + 1;
+  const snippet = createSnippet(
+    resolvedPath,
+    displayStartLine,
+    displayStartLine + sliced.length - 1,
+    sliced.join("\n"),
+    metadata,
+  );
+  const numbered = metadata.content === "" ? "" : formatWithLineNumbers(sliced, displayStartLine);
+
+  return {
+    success: true,
+    data: numbered || "(空文件)",
+    metadata: {
+      snippet: {
+        id: snippet.id,
+        filePath: snippet.filePath,
+        startLine: snippet.startLine,
+        endLine: snippet.endLine,
+      },
+    },
+  };
+}
 
 function parseReadRange(
   offset: number | undefined,

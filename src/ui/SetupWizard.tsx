@@ -1,6 +1,6 @@
 import { useState, useLayoutEffect, useRef } from "react";
 import { Box, Text, useCursor, useInput, usePaste, measureElement } from "ink";
-import type { CursorPosition } from "ink";
+import type { CursorPosition, DOMElement } from "ink";
 import stringWidth from "string-width";
 import { setConfig, DEFAULT_CONFIG } from "../config/store.js";
 import { APP } from "../config/app.js";
@@ -226,7 +226,7 @@ const PromptRow = ({
   cursorEnabled: boolean;
 }) => {
   const { setCursorPosition } = useCursor();
-  const inputLineRef = useRef<any>(null);
+  const inputLineRef = useRef<DOMElement | null>(null);
   const [cursorOrigin, setCursorOrigin] = useState<CursorPosition | null>(null);
 
   useLayoutEffect(() => {

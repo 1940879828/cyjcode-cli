@@ -1,44 +1,37 @@
-# cyjcode-cli 项目说明
+# tigacode-cli 项目说明
 
-## 项目概述
+## 项目概览
 
-cyjcode 是一个基于终端的 AI 编程助手 CLI 工具，使用 React + Ink 构建交互式终端 UI，通过 OpenAI API 提供 LLM 能力。
+这是一个基于 Node.js、TypeScript、React 和 Ink 的终端 AI 编程助手 CLI。项目使用 ESM，运行环境要求 Node.js >= 22。
 
-## 技术栈
+## 目录约定
 
-- **运行时**: Node.js >= 22, TypeScript 6.x (ESM 模块)
-- **终端 UI**: React 19 + Ink 7
-- **AI 引擎**: OpenAI SDK (openai ^6.44.0)
-- **CLI 框架**: yargs ^18.0.0
-- **数据验证**: zod ^4.4.3
-- **编译**: Babel（编译）+ esbuild（打包）
-- **开发运行**: tsx
-- **测试**: node 内置 test runner + tsx
+- `src/cli.tsx`：生产 CLI 入口和命令行参数处理。
+- `src/ui/`：Ink/React 终端界面及交互逻辑；组件采用「一个组件一个目录 + index.ts 索引导出」组织，通用 UI hooks 放在 `src/ui/hooks/`。
+- `src/agent/`：Agent 循环、上下文历史和提示词。
+- `src/llm/`：OpenAI 客户端和 LLM 类型定义。
+- `src/tools/`：提供给 Agent 使用的文件读写、搜索、重命名和目录浏览工具。
+- `src/config/`：本地配置存储。
+- `src/devmock/`：开发录制与 mock 回放，只通过开发脚本使用，不进入生产构建。
+- `src/ui/components/InputBox/`：其中 `inputBoxModel.ts` 为输入框纯函数核心（command 翻译 + reducer + 视图选择器），`InputBox.tsx` 只做装配、命令分发与提交回调消费，`textEditor.ts` 提供 `TextCursor` 纯计算原语。
+- `tests/`：单元/集成测试，如 `tests/inputBoxModel.test.ts`（输入框核心逻辑）。
+- `docs/`：需求、迭代计划和运维文档。
+- `.babel-out/`、`dist/`：构建产物，不要手工修改，也不要提交。
+- `mockdata/`：本地开发录制数据，不要提交真实敏感信息。
 
-## 项目结构
+## 开发约定
 
-```
-src/
-  agent/    - Agent 核心逻辑
-  config/   - 配置管理
-  devmock/  - 开发录制与 mock 回放，不参与生产构建
-  init/     - 初始化逻辑
-  llm/      - LLM 调用封装
-  test/     - 测试代码
-  tools/    - 工具集
-  ui/       - Ink 终端 UI 组件
-    hooks/         - 通用 UI hooks（如 useChat、useExit）
-    components/    - 组件目录，采用「一个组件一个目录 + index.ts 索引导出」
-      Header/
-      InputBox/
-        inputBoxModel.ts - 输入框纯函数核心（command 翻译 + reducer + 视图选择器）
-        InputBox.tsx     - 输入框 UI，只做装配、命令分发与提交回调消费
-        textEditor.ts    - 文本编辑原语（TextCursor 类，纯计算）
-      MessageList/
-  utils/    - 工具函数
-  cli.tsx   - CLI 入口
-tests/     - 集成/单元测试（如 inputBoxModel.test.ts）
-```
+- 使用 TypeScript 严格模式；优先保持现有类型定义，不要用 `any` 绕过类型检查。
+- UI 使用 React + Ink；项目已启用 React Compiler，不需要手动添加 `memo`、`useMemo` 或 `useCallback` 来替代编译器优化。
+- 保持 ESM 导入风格，并遵循现有文件的命名和组织方式。
+- 修改前先阅读相关模块及其调用方，避免破坏 CLI 入口、Agent 工具协议和终端交互状态。
+- 不要覆盖或回退用户已有的未提交修改；如修改与现有工作重叠，先保留并基于当前内容编辑。
+- API key、用户配置、会话记录和本地 mock 数据不得写入源码、日志或提交内容。
+
+## 提交代码时
+
+- 生成中文的commit message
+- 需要遵循之前的提交风格
 
 ## 代码风格守则
 
@@ -49,7 +42,7 @@ tests/     - 集成/单元测试（如 inputBoxModel.test.ts）
 - Early Return，缩进不超过 3 层
 - 组合优于继承，依赖注入优于类继承链
 - 不解释「做了什么」，只在必要处写「为什么」
-- 开发时不得只改代码不改注释：代码逻辑变化时，必须同步更新相关注释；修改 `.codebuddy/CODEBUDDY.md` 与 `AGENTS.md` 中任一文件时，必须同步修改另一份，保持两份内容一致
+- 开发时不得只改代码不改注释：代码逻辑变化时，必须同步更新相关注释；修改 `AGENTS.md` 与 `.codebuddy/CODEBUDDY.md` 中任一文件时，必须同步修改另一份，保持两份内容一致
 - PowerShell 默认必须使用 UTF-8：会话开始先设置 `$utf8 = [System.Text.UTF8Encoding]::new(); [Console]::InputEncoding = $utf8; [Console]::OutputEncoding = $utf8; $OutputEncoding = $utf8`；读取文件时显式使用 `Get-Content -Encoding UTF8`，不得依赖系统默认编码
 - 只在出现第二处相同代码时才抽象，不过早 DRY
 - 业务逻辑（纯函数）与 I/O/框架严格分离
@@ -67,33 +60,30 @@ tests/     - 集成/单元测试（如 inputBoxModel.test.ts）
 
 ## 输入框架构约定（InputBox）
 
-输入框采用「纯函数核心 + 精简 UI」的分层，状态和操作逻辑与 React 完全解耦：
+输入框为「纯函数核心 + 精简 UI」分层，状态与 React 解耦：
 
-- **状态单一来源**：`InputBoxState` 是唯一状态事实来源，按键事件经 `resolveInputBoxCommand` 翻译成 `InputBoxCommand`，编辑命令再由 `reduceInputBoxState` 产出新状态。
-- **提交副作用隔离**：提交规则由 `getSubmittableText` 纯函数判断，提交回调只在 UI 层的 submit 命令分支触发，reducer 不产出副作用。
-- **视图选择器独立**：`selectInputBoxView` 从状态推导渲染文本与光标位置，与状态变更分开。
-- **扩展新功能**（⬆️⬇️历史、补全下拉框等）：只在 `inputBoxModel.ts` 增加状态维度与 reducer 分支，UI 几乎不动。
-- 该核心逻辑有独立单元测试（`tests/inputBoxModel.test.ts`）。
+- 状态单一来源为 `InputBoxState`；按键经 `resolveInputBoxCommand` 翻译成 `InputBoxCommand`，编辑命令再由 `reduceInputBoxState` 产出新状态。
+- 提交规则由 `getSubmittableText` 纯函数判断；提交回调只在 UI 层的 submit 命令分支触发，reducer 不产出副作用。
+- 视图由 `selectInputBoxView` 独立推导；新增功能（历史、下拉框）只在 `inputBoxModel.ts` 加状态与分支，UI 几乎不动。
+- 该核心逻辑须有单元测试，改动后运行 `npm run test:inputbox`。
 
----
+## 常用命令
 
-## 技术规范
+```bash
+npm run dev          # tsx --watch 直接运行 CLI
+npm run dev:tsx      # tsx 单次运行 CLI
+npm run dev:babel    # Babel watch + React Compiler + Node watch
+npm run typecheck    # TypeScript 类型检查
+npm run build        # 类型检查、Babel 编译并打包
+npm run test:inputbox# 运行输入框核心单元测试
+npm run devrecord    # 开发入口录制默认会话
+npm run devmock      # 开发入口回放 mockdata/default.json
+```
 
-- 使用 ES2022 标准，ESM 模块（`import/export`）
-- 代码严格遵循 TypeScript strict 模式
-- 模块解析使用 NodeNext
-- JSX 使用 `react-jsx` 模式（无需显式 `import React`）
-- 所有源文件放在 `src/` 目录下
+完成代码修改后，至少运行 `npm run typecheck`；修改 `src/ui/components/InputBox/inputBoxModel.ts` 还需运行 `npm run test:inputbox`；涉及构建流程、入口或打包行为的修改还要运行 `npm run build`。如果测试或验证因环境、凭据或外部服务不可用而跳过，应在交付说明中明确写出。
 
-## 开发命令
+## Git 注意事项
 
-- `npm run dev` - Babel watch + Node watch 开发模式
-- `npm run dev:tsx` - tsx 直接运行，适合快速调试
-- `npm run build` - 类型检查 + Babel 编译 + esbuild 打包
-- `npm run typecheck` - 仅类型检查
-- `npm run test:inputbox` - 运行输入框核心单元测试
-
-## 提交代码时
-
-- 生成中文的commit message
-- 需要遵循之前的提交风格
+- 提交前检查 `git status` 和 `git diff`，只包含当前任务相关的文件。
+- 不要使用破坏性回退命令覆盖用户工作区。
+- 默认不提交构建产物、`node_modules`、`mockdata` 或包含凭据的文件。

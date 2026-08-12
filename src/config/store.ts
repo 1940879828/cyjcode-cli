@@ -6,19 +6,12 @@ import { APP } from "./app.js";
 // 旧配置目录名（迁移来源）
 const LEGACY_DIR_NAME = ".cyjcode";
 
-// 配置文件结构
-export interface CyjConfig {
-  // API 基础路径
+export interface AppConfig {
   baseUrl: string;
-  // API 密钥
   apiKey: string;
-  // 当前选中模型
   model: string;
-  // 可用模型列表
   models: string[];
-  // DeepSeek 思考模式
   thinking: boolean;
-  // 推理深度（DeepSeek reasoning_effort）
   reasoningEffort: string;
 }
 
@@ -28,8 +21,7 @@ const LEGACY_DIR = path.join(os.homedir(), LEGACY_DIR_NAME);
 
 // ─── 默认值（唯一配置源） ──────────────────────────
 
-/** 所有配置项的默认值，全局唯一来源 */
-export const DEFAULT_CONFIG: CyjConfig = {
+export const DEFAULT_CONFIG: AppConfig = {
   baseUrl: "https://api.deepseek.com",
   apiKey: "",
   model: "deepseek-v4-pro",
@@ -66,17 +58,17 @@ export function hasConfig(): boolean {
 }
 
 // 读取配置文件
-export function getConfig(): CyjConfig {
+export function getConfig(): AppConfig {
   if (!hasConfig()) {
     return { ...DEFAULT_CONFIG };
   }
   const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
-  const parsed = JSON.parse(raw) as Partial<CyjConfig>;
+  const parsed = JSON.parse(raw) as Partial<AppConfig>;
   return { ...DEFAULT_CONFIG, ...parsed };
 }
 
 // 写入配置文件
-export function setConfig(config: CyjConfig): void {
+export function setConfig(config: AppConfig): void {
   ensureDir();
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
 }

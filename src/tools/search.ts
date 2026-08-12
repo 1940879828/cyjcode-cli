@@ -1,7 +1,8 @@
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 import type { Tool, ToolResult } from "./types.js";
+import { resolveInsideWorkspace } from "./workspacePath.js";
 
 const search: Tool = {
   name: "search",
@@ -29,106 +30,12 @@ const search: Tool = {
   },
 
   execute(args: Record<string, unknown>): ToolResult {
-    const pattern = args.pattern as string;
-    const searchPath = (args.path as string) || ".";
-    const fileTypes = args.fileTypes as string | undefined;
+    const parsed = parseSearchArgs(args);
 
-    if (!pattern) {
-      return {
-        success: false,
-        error: "pattern 参数不能为空",
-      };
-    }
-
-    // 安全检查
-    const resolved = path.resolve(searchPath);
-    const cwd = process.cwd();
-    if (!resolved.startsWith(cwd)) {
-      return {
-        success: false,
-        error: `路径穿越拒绝: ${searchPath}`,
-      };
-    }
+    if (!parsed.success) return { success: false, error: parsed.error };
 
     try {
-      if (!fs.existsSync(resolved)) {
-        return {
-          success: false,
-          error: `路径不存在: ${searchPath}`,
-        };
-      }
-
-      // 尝试使用 rg (ripgrep)
-      try {
-        const globFlag = fileTypes
-          ? fileTypes
-              .split(",")
-              .map((t) => `-g '*${t.trim()}'`)
-              .join(" ")
-          : "";
-        const cmd = `rg --line-number --no-heading "${pattern}" "${resolved}" ${globFlag}`;
-        const result = execSync(cmd, {
-          encoding: "utf-8",
-          maxBuffer: 10 * 1024 * 1024,
-          timeout: 10000,
-        });
-        return {
-          success: true,
-          data: result.trim() || "没有找到匹配项",
-        };
-      } catch (rgError) {
-        // rg 不可用或没有结果，回退到 Node 原生搜索
-      }
-
-      // 回退：使用 fs 递归搜索
-      const results: string[] = [];
-      const searchRecursive = (dir: string) => {
-        let entries: fs.Dirent[];
-        try {
-          entries = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
-          return;
-        }
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            // 跳过 node_modules 和 .git
-            if (entry.name === "node_modules" || entry.name === ".git") continue;
-            searchRecursive(fullPath);
-          } else if (entry.isFile()) {
-            // 检查文件类型过滤
-            if (fileTypes) {
-              const ext = path.extname(entry.name);
-              const allowed = fileTypes.split(",").map((t) => t.trim());
-              if (!allowed.includes(ext)) continue;
-            }
-            try {
-              const content = fs.readFileSync(fullPath, "utf-8");
-              const lines = content.split("\n");
-              const regex = new RegExp(pattern, "gi");
-              for (let i = 0; i < lines.length; i++) {
-                if (regex.test(lines[i])) {
-                  results.push(
-                    `${path.relative(cwd, fullPath)}:${i + 1}: ${lines[i].trim().substring(0, 200)}`
-                  );
-                  regex.lastIndex = 0; // 重置
-                }
-              }
-            } catch {
-              // 跳过无法读取的文件
-            }
-          }
-        }
-      };
-
-      searchRecursive(resolved);
-      return {
-        success: true,
-        data:
-          results.length > 0
-            ? results.slice(0, 100).join("\n")
-            : "没有找到匹配项",
-      };
+      return searchFiles(parsed.value);
     } catch (error) {
       return {
         success: false,
@@ -137,5 +44,122 @@ const search: Tool = {
     }
   },
 };
+
+interface SearchArgs {
+  pattern: string;
+  searchPath: string;
+  fileTypes?: string;
+  resolvedPath: string;
+}
+
+function parseSearchArgs(
+  args: Record<string, unknown>,
+): { success: true; value: SearchArgs } | { success: false; error: string } {
+  const pattern = typeof args.pattern === "string" ? args.pattern : "";
+  const searchPath = typeof args.path === "string" && args.path ? args.path : ".";
+  const fileTypes = typeof args.fileTypes === "string" ? args.fileTypes : undefined;
+
+  if (!pattern) return { success: false, error: "pattern 参数不能为空" };
+
+  const resolved = resolveInsideWorkspace(searchPath);
+  if (!resolved.success) return resolved;
+
+  return {
+    success: true,
+    value: { pattern, searchPath, fileTypes, resolvedPath: resolved.path },
+  };
+}
+
+function searchFiles(args: SearchArgs): ToolResult {
+  if (!fs.existsSync(args.resolvedPath)) {
+    return { success: false, error: `路径不存在: ${args.searchPath}` };
+  }
+
+  return searchWithRipgrep(args) ?? searchWithNode(args);
+}
+
+function searchWithRipgrep(args: SearchArgs): ToolResult | null {
+  const result = spawnSync("rg", buildRipgrepArgs(args), {
+    encoding: "utf-8",
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 10000,
+    windowsHide: true,
+  });
+
+  if (result.error || result.status === null || result.status > 1) return null;
+
+  const output = result.stdout.trim();
+  return { success: true, data: output || "没有找到匹配项" };
+}
+
+function buildRipgrepArgs(args: SearchArgs): string[] {
+  const globs = parseFileTypes(args.fileTypes).flatMap((type) => ["-g", `*${type}`]);
+  return ["--line-number", "--no-heading", args.pattern, args.resolvedPath, ...globs];
+}
+
+function searchWithNode(args: SearchArgs): ToolResult {
+  const results = collectNodeSearchResults(args).slice(0, 100);
+  return {
+    success: true,
+    data: results.length > 0 ? results.join("\n") : "没有找到匹配项",
+  };
+}
+
+function collectNodeSearchResults(args: SearchArgs): string[] {
+  const regex = new RegExp(args.pattern, "gi");
+  return listSearchFiles(args.resolvedPath)
+    .filter((filePath) => isAllowedFileType(filePath, args.fileTypes))
+    .flatMap((filePath) => searchFile(filePath, regex));
+}
+
+function listSearchFiles(targetPath: string): string[] {
+  if (fs.statSync(targetPath).isFile()) return [targetPath];
+
+  return fs.readdirSync(targetPath, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory() && shouldSearchDirectory(entry.name)) {
+      return listSearchFiles(path.join(targetPath, entry.name));
+    }
+    return entry.isFile() ? [path.join(targetPath, entry.name)] : [];
+  });
+}
+
+function shouldSearchDirectory(name: string): boolean {
+  return name !== "node_modules" && name !== ".git";
+}
+
+function isAllowedFileType(filePath: string, fileTypes: string | undefined): boolean {
+  const allowedTypes = parseFileTypes(fileTypes);
+  return allowedTypes.length === 0 || allowedTypes.includes(path.extname(filePath));
+}
+
+function parseFileTypes(fileTypes: string | undefined): string[] {
+  return fileTypes
+    ? fileTypes.split(",").map((type) => type.trim()).filter(Boolean)
+    : [];
+}
+
+function searchFile(filePath: string, regex: RegExp): string[] {
+  try {
+    return fs.readFileSync(filePath, "utf-8")
+      .split("\n")
+      .flatMap((line, index) => formatMatch(filePath, line, index, regex));
+  } catch {
+    return [];
+  }
+}
+
+function formatMatch(
+  filePath: string,
+  line: string,
+  index: number,
+  regex: RegExp,
+): string[] {
+  regex.lastIndex = 0;
+  if (!regex.test(line)) return [];
+  regex.lastIndex = 0;
+  return [
+    `${path.relative(process.cwd(), filePath)}:${index + 1}: ${line.trim().substring(0, 200)}`,
+  ];
+}
 
 export default search;

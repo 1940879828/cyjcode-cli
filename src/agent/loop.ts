@@ -1,84 +1,253 @@
 import { streamChat } from "../llm/client.js";
-import type { ChatMessage, TokenUsage, ToolCall } from "../llm/types.js";
-import { toolsToOpenAI, getTool } from "../tools/index.js";
+import type { ChatMessage, StreamEvent, TokenUsage, ToolCall } from "../llm/types.js";
+import { getTool, toolsToOpenAI } from "../tools/index.js";
 import type { ToolResult } from "../tools/types.js";
-import type { AgentEvent } from "./types.js";
-import { buildSystemPrompt } from "./prompt.js";
-import { addMessage, getMessages, appendToolResult } from "./history.js";
-import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
 import { log } from "../utils/logger.js";
+import { addMessage, appendToolResult, getMessages } from "./history.js";
+import { buildSystemPrompt } from "./prompt.js";
+import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
+import type { AgentEvent } from "./types.js";
 
 const MAX_ROUNDS = 10;
+const EMPTY_REPLY = "（无回复内容）";
 
-// ─── 内部辅助 ────────────────────────────────────────
-
-/** 生成简短的会话 ID */
-function generateSessionId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+interface SessionContext {
+  sessionId: string;
+  systemPrompt: string;
+  tools: Record<string, unknown>[];
 }
 
-/** 产出工具错误事件（tool_call + tool_result）并写入历史 */
-function* emitToolError(
-  tc: ToolCall,
-  errorMessage: string,
-): Generator<AgentEvent> {
-  yield {
-    type: "tool_call",
-    callId: tc.id,
-    name: tc.function.name,
-    arguments: {},
-  };
-  yield {
-    type: "tool_result",
-    callId: tc.id,
-    name: tc.function.name,
-    result: { success: false, error: errorMessage },
-  };
-  appendToolResult(tc.id, tc.function.name, `错误: ${errorMessage}`);
+interface TurnResponse {
+  fullText: string;
+  toolCalls: ToolCall[] | null;
+  usage: TokenUsage | null;
 }
 
-/** 执行单个工具调用，返回需 yield 的事件序列 */
-async function* emitToolExecution(
-  tc: ToolCall,
-  parsedArgs: Record<string, unknown>,
-  sessionId: string,
-  turn: number,
+export async function* runAgentLoop(
+  userMessage: string,
 ): AsyncGenerator<AgentEvent> {
-  const tool = getTool(tc.function.name);
+  const context = startSession(userMessage);
+
+  yield { type: "user_message", content: userMessage };
+  addMessage({ role: "user", content: userMessage });
+
+  for (let turn = 1; turn <= MAX_ROUNDS; turn++) {
+    yield { type: "turn_start", turn };
+
+    try {
+      const response = yield* emitLlmTurn(context, turn);
+      if (!response.toolCalls) {
+        yield* finishTextResponse(context, turn, response.fullText);
+        return;
+      }
+
+      addAssistantToolRequest(response);
+      yield* executeToolCalls(context, turn, response.toolCalls);
+      yield { type: "turn_end", turn };
+    } catch (error) {
+      yield* finishWithError(context, turn, toErrorMessage(error));
+      return;
+    }
+  }
+
+  yield* finishMaxRounds(context);
+}
+
+function startSession(userMessage: string): SessionContext {
+  const sessionId = generateSessionId();
+  log("session.start", { sessionId, userMessage });
+  appendProjectInstructionsToHistory();
+  return {
+    sessionId,
+    systemPrompt: buildSystemPrompt(),
+    tools: toolsToOpenAI(),
+  };
+}
+
+async function* emitLlmTurn(
+  context: SessionContext,
+  turn: number,
+): AsyncGenerator<AgentEvent, TurnResponse> {
+  const messages = buildMessages(context.systemPrompt);
+  log("llm.request", { sessionId: context.sessionId, turn, messageCount: messages.length });
+
+  const response = createTurnResponse();
+  for await (const event of streamChat({ messages, tools: context.tools })) {
+    const forwarded = consumeStreamEvent(event, response);
+    if (forwarded) yield forwarded;
+  }
+
+  logLlmResponse(context, turn, response);
+  return response;
+}
+
+function buildMessages(systemPrompt: string): ChatMessage[] {
+  return [{ role: "system", content: systemPrompt }, ...getMessages()];
+}
+
+function createTurnResponse(): TurnResponse {
+  return { fullText: "", toolCalls: null, usage: null };
+}
+
+function consumeStreamEvent(
+  event: StreamEvent,
+  response: TurnResponse,
+): AgentEvent | null {
+  switch (event.type) {
+    case "reasoning_delta":
+      return { type: "reasoning_delta", content: event.content };
+    case "text_delta":
+      response.fullText += event.content;
+      return { type: "text_delta", content: event.content };
+    case "usage":
+      response.usage = event.usage;
+      return { type: "usage", usage: event.usage };
+    case "done":
+      response.toolCalls = event.message.tool_calls?.length
+        ? event.message.tool_calls
+        : null;
+      return null;
+    case "tool_call_delta":
+      return null;
+    case "error":
+      throw event.error;
+  }
+}
+
+function logLlmResponse(
+  context: SessionContext,
+  turn: number,
+  response: TurnResponse,
+): void {
+  log("llm.response", {
+    sessionId: context.sessionId,
+    turn,
+    hasToolCalls: !!response.toolCalls,
+    toolCallCount: response.toolCalls?.length ?? 0,
+    responseLength: response.fullText.length,
+    promptTokens: response.usage?.promptTokens,
+    completionTokens: response.usage?.completionTokens,
+    totalTokens: response.usage?.totalTokens,
+  });
+}
+
+async function* finishTextResponse(
+  context: SessionContext,
+  turn: number,
+  fullText: string,
+): AsyncGenerator<AgentEvent> {
+  const content = fullText || EMPTY_REPLY;
+  addMessage({ role: "assistant", content });
+  yield { type: "turn_end", turn };
+  yield { type: "done", fullText: content };
+  log("session.end", { sessionId: context.sessionId, status: "success", totalTurns: turn });
+}
+
+function addAssistantToolRequest(response: TurnResponse): void {
+  addMessage({
+    role: "assistant",
+    content: response.fullText || null,
+    tool_calls: response.toolCalls ?? undefined,
+  });
+}
+
+async function* executeToolCalls(
+  context: SessionContext,
+  turn: number,
+  toolCalls: ToolCall[],
+): AsyncGenerator<AgentEvent> {
+  for (const toolCall of toolCalls) {
+    const parsedArgs = parseToolArgs(toolCall.function.arguments);
+    if (!parsedArgs) {
+      yield* emitToolParseError(context, turn, toolCall);
+      continue;
+    }
+    yield* emitToolExecution(context, turn, toolCall, parsedArgs);
+  }
+}
+
+async function* emitToolExecution(
+  context: SessionContext,
+  turn: number,
+  toolCall: ToolCall,
+  parsedArgs: Record<string, unknown>,
+): AsyncGenerator<AgentEvent> {
+  const tool = getTool(toolCall.function.name);
   if (!tool) {
-    log("tool.start", { sessionId, turn, tool: tc.function.name, args: parsedArgs });
-    log("tool.end", { sessionId, turn, tool: tc.function.name, success: false, error: "未注册的工具" });
-    yield* emitToolError(tc, `未注册的工具: ${tc.function.name}`);
+    yield* emitToolFailure(context, turn, toolCall, parsedArgs, "未注册的工具");
     return;
   }
 
-  // 埋点: tool.start
-  log("tool.start", { sessionId, turn, tool: tc.function.name, args: parsedArgs });
+  logToolStart(context, turn, toolCall.function.name, parsedArgs);
+  const result = await runTool(tool, parsedArgs);
+  logToolEnd(context, turn, toolCall.function.name, result);
 
-  let result: ToolResult;
+  yield { type: "tool_call", callId: toolCall.id, name: toolCall.function.name, arguments: parsedArgs };
+  yield { type: "tool_result", callId: toolCall.id, name: toolCall.function.name, result };
+  appendToolResult(toolCall.id, toolCall.function.name, formatToolResultForModel(result));
+}
+
+async function runTool(
+  tool: NonNullable<ReturnType<typeof getTool>>,
+  parsedArgs: Record<string, unknown>,
+): Promise<ToolResult> {
   try {
-    result = await tool.execute(parsedArgs);
-  } catch (err) {
-    result = {
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    return await tool.execute(parsedArgs);
+  } catch (error) {
+    return { success: false, error: toErrorMessage(error) };
   }
+}
 
-  // 埋点: tool.end
+function* emitToolParseError(
+  context: SessionContext,
+  turn: number,
+  toolCall: ToolCall,
+): Generator<AgentEvent> {
+  const errorMessage = `工具参数 JSON 解析失败: ${toolCall.function.arguments}`;
+  yield* emitToolFailure(context, turn, toolCall, {}, errorMessage);
+}
+
+function* emitToolFailure(
+  context: SessionContext,
+  turn: number,
+  toolCall: ToolCall,
+  parsedArgs: Record<string, unknown>,
+  errorMessage: string,
+): Generator<AgentEvent> {
+  logToolStart(context, turn, toolCall.function.name, parsedArgs);
+  logToolEnd(context, turn, toolCall.function.name, { success: false, error: errorMessage });
+  yield { type: "tool_call", callId: toolCall.id, name: toolCall.function.name, arguments: parsedArgs };
+  yield {
+    type: "tool_result",
+    callId: toolCall.id,
+    name: toolCall.function.name,
+    result: { success: false, error: errorMessage },
+  };
+  appendToolResult(toolCall.id, toolCall.function.name, `错误: ${errorMessage}`);
+}
+
+function logToolStart(
+  context: SessionContext,
+  turn: number,
+  toolName: string,
+  args: Record<string, unknown>,
+): void {
+  log("tool.start", { sessionId: context.sessionId, turn, tool: toolName, args });
+}
+
+function logToolEnd(
+  context: SessionContext,
+  turn: number,
+  toolName: string,
+  result: ToolResult,
+): void {
   log("tool.end", {
-    sessionId,
+    sessionId: context.sessionId,
     turn,
-    tool: tc.function.name,
+    tool: toolName,
     success: result.success,
     error: result.success ? undefined : result.error,
   });
-
-  yield { type: "tool_call", callId: tc.id, name: tc.function.name, arguments: parsedArgs };
-  yield { type: "tool_result", callId: tc.id, name: tc.function.name, result };
-
-  const resultStr = formatToolResultForModel(result);
-  appendToolResult(tc.id, tc.function.name, resultStr);
 }
 
 function formatToolResultForModel(result: ToolResult): string {
@@ -86,189 +255,44 @@ function formatToolResultForModel(result: ToolResult): string {
     return result.success ? result.data ?? "成功" : `错误: ${result.error}`;
   }
 
-  return JSON.stringify(
-    {
-      success: result.success,
-      data: result.data,
-      error: result.error,
-      metadata: result.metadata,
-    },
-    null,
-    2,
-  );
+  return JSON.stringify({
+    success: result.success,
+    data: result.data,
+    error: result.error,
+    metadata: result.metadata,
+  }, null, 2);
 }
 
-/** 尝试解析工具参数，失败返回 null */
 function parseToolArgs(raw: string): Record<string, unknown> | null {
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw) as Record<string, unknown>;
   } catch {
     return null;
   }
 }
 
-// ─── 主循环 ──────────────────────────────────────────
+function* finishWithError(
+  context: SessionContext,
+  turn: number,
+  error: string,
+): Generator<AgentEvent> {
+  log("error", { sessionId: context.sessionId, turn, message: error });
+  yield { type: "error", error };
+  yield { type: "turn_end", turn };
+  log("session.end", { sessionId: context.sessionId, status: "error", totalTurns: turn });
+}
 
-/**
- * Agent 主循环: AsyncGenerator 逐事件产出。
- * 调用方通过 for await...of 消费事件流。
- */
-export async function* runAgentLoop(
-  userMessage: string,
-): AsyncGenerator<AgentEvent> {
-  const sessionId = generateSessionId();
+function* finishMaxRounds(context: SessionContext): Generator<AgentEvent> {
+  const error = `已达到最大工具调用轮数 (${MAX_ROUNDS})，终止循环`;
+  log("error", { sessionId: context.sessionId, message: `达到最大轮数限制 (${MAX_ROUNDS})` });
+  log("session.end", { sessionId: context.sessionId, status: "max_rounds", totalTurns: MAX_ROUNDS });
+  yield { type: "error", error };
+}
 
-  // 埋点: session.start
-  log("session.start", { sessionId, userMessage });
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
-  appendProjectInstructionsToHistory();
-
-  // 回显并记录用户输入
-  yield { type: "user_message", content: userMessage };
-  addMessage({ role: "user", content: userMessage });
-
-  const systemPrompt = buildSystemPrompt();
-  const tools = toolsToOpenAI();
-
-  for (let turn = 1; turn <= MAX_ROUNDS; turn++) {
-    yield { type: "turn_start", turn };
-
-    const messages: ChatMessage[] = [
-      { role: "system", content: systemPrompt },
-      ...getMessages(),
-    ];
-
-    // 埋点: llm.request
-    log("llm.request", {
-      sessionId,
-      turn,
-      messageCount: messages.length,
-    });
-
-    let fullText = "";
-    let reasoningText = "";
-    let toolCalls: ToolCall[] | null = null;
-    let usage: TokenUsage | null = null;
-
-    try {
-      const stream = streamChat({ messages, tools });
-
-      for await (const event of stream) {
-        switch (event.type) {
-          case "reasoning_delta":
-            reasoningText += event.content;
-            yield { type: "reasoning_delta", content: event.content };
-            break;
-
-          case "text_delta":
-            fullText += event.content;
-            yield { type: "text_delta", content: event.content };
-            break;
-
-          case "tool_call_delta":
-            // 增量在 done 事件中统一处理
-            break;
-
-          case "usage":
-            usage = event.usage;
-            yield { type: "usage", usage };
-            break;
-
-          case "done": {
-            const tcList = event.message.tool_calls;
-            if (tcList?.length) {
-              toolCalls = tcList;
-            }
-            log("llm.response", {
-              sessionId,
-              turn,
-              hasToolCalls: !!toolCalls,
-              toolCallCount: toolCalls?.length ?? 0,
-              responseLength: fullText.length,
-              promptTokens: usage?.promptTokens,
-              completionTokens: usage?.completionTokens,
-              totalTokens: usage?.totalTokens,
-            });
-            break;
-          }
-
-          case "error":
-            log("error", { sessionId, turn, message: event.error.message });
-            yield { type: "error", error: event.error.message };
-            yield { type: "turn_end", turn };
-            log("session.end", { sessionId, status: "error", totalTurns: turn });
-            return;
-        }
-      }
-
-      // 无工具调用 → 本轮即最终回复
-      if (!toolCalls) {
-        addMessage({
-          role: "assistant",
-          content: fullText || "（无回复内容）",
-        });
-        yield { type: "turn_end", turn };
-        yield { type: "done", fullText: fullText || "（无回复内容）" };
-        log("session.end", { sessionId, status: "success", totalTurns: turn });
-        return;
-      }
-
-      // 有工具调用 → 保存助手消息，逐条执行工具
-      addMessage({
-        role: "assistant",
-        content: fullText || null,
-        tool_calls: toolCalls,
-      });
-
-      for (const tc of toolCalls) {
-        const parsedArgs = parseToolArgs(tc.function.arguments);
-
-        if (!parsedArgs) {
-          log("tool.start", {
-            sessionId,
-            turn,
-            tool: tc.function.name,
-            args: tc.function.arguments,
-          });
-          log("tool.end", {
-            sessionId,
-            turn,
-            tool: tc.function.name,
-            success: false,
-            error: "JSON 解析失败",
-          });
-          yield* emitToolError(
-            tc,
-            `工具参数 JSON 解析失败: ${tc.function.arguments}`,
-          );
-          continue;
-        }
-
-        yield* emitToolExecution(tc, parsedArgs, sessionId, turn);
-      }
-
-      yield { type: "turn_end", turn };
-    } catch (error) {
-      log("error", {
-        sessionId,
-        turn,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      yield {
-        type: "error",
-        error: error instanceof Error ? error.message : String(error),
-      };
-      yield { type: "turn_end", turn };
-      log("session.end", { sessionId, status: "error", totalTurns: turn });
-      return;
-    }
-  }
-
-  // 超过 MAX_ROUNDS
-  log("error", { sessionId, message: `达到最大轮数限制 (${MAX_ROUNDS})` });
-  log("session.end", { sessionId, status: "max_rounds", totalTurns: MAX_ROUNDS });
-  yield {
-    type: "error",
-    error: `已达到最大工具调用轮数 (${MAX_ROUNDS})，终止循环`,
-  };
+function generateSessionId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }

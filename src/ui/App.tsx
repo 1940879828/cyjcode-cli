@@ -1,8 +1,12 @@
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { Box, Text, measureElement, useWindowSize } from "ink";
 import type { DOMElement } from "ink";
 import { hasConfig, getConfig } from "../config/store.js";
+import type { AppConfig } from "../config/store.js";
+import { getPackageVersion } from "../config/version.js";
 import { useChat, useChatInputRouter, useExit } from "./hooks/index.js";
+import type { AgentRunner } from "./hooks/index.js";
 import InputBox, {
   getInputColumns,
   getMaxVisibleInputLines,
@@ -13,20 +17,20 @@ import { appendInputHistory } from "./components/InputBox/inputBoxModel.js";
 import { selectContextUsageView } from "./contextUsage.js";
 import { parseSlashInput } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
-import pkg from "../../package.json" with { type: "json" };
 
 const FALLBACK_FOOTER_HEIGHT = 4;
 
-const App = () => {
-  /** 配置是否就绪：null 检查中 / false 需引导 / true 已就绪 */
-  const [configured, setConfigured] = useState<boolean | null>(null);
+interface AppProps {
+  agentRunner?: AgentRunner;
+}
+
+const App = ({ agentRunner }: AppProps) => {
+  const [configured, setConfigured] = useConfigurationState();
   const { columns, rows } = useWindowSize();
   const footerRef = useRef<DOMElement | null>(null);
   const [footerHeight, setFooterHeight] = useState(FALLBACK_FOOTER_HEIGHT);
-  /** 退出流程：isExiting 供其他组件消费，requestExit 触发退出 */
   const { isExiting, requestExit } = useExit({ captureInput: configured !== true });
   const [inputHistory, setInputHistory] = useState<readonly string[]>([]);
-  /** 聊天状态与操作 */
   const {
     entries,
     isStreaming,
@@ -36,11 +40,7 @@ const App = () => {
     sendMessage,
     clearChat,
     appendSystemMessage,
-  } = useChat();
-
-  useEffect(() => {
-    setConfigured(hasConfig());
-  }, []);
+  } = useChat({ agentRunner });
 
   useLayoutEffect(() => {
     if (footerRef.current) {
@@ -58,25 +58,17 @@ const App = () => {
   );
 
   const handleSubmit = (text: string) => {
-    // 用户提交的内容
     const commandText = text.trim();
-    // 把用户提交的内容记进历史
     setInputHistory((previousHistory) =>
       appendInputHistory(previousHistory, text),
     );
 
-    // 拦截 trim 后 / 开头的输入：未识别命令不给 AI，防止配置错误时触发 API 调用
     if (commandText.startsWith("/")) {
-      const parsed = parseSlashInput(commandText);
-      if (parsed) {
-        const ctx = {
-          clearChat,
-          startSetup: () => setConfigured(false),
-        };
-        appendSystemMessage(parsed.command.handler(parsed.args, ctx));
-      } else {
-        appendSystemMessage(`未知命令: ${commandText}\n输入 /help 查看可用命令`);
-      }
+      handleSlashCommand(commandText, {
+        appendSystemMessage,
+        clearChat,
+        startSetup: () => setConfigured(false),
+      });
       return;
     }
     sendMessage(text);
@@ -93,7 +85,7 @@ const App = () => {
   const transcriptController = useTranscriptViewportController({
     header: config
       ? {
-          version: pkg.version,
+          version: getPackageVersion(),
           model: config.model,
           thinking: config.thinking,
           reasoningEffort: config.reasoningEffort,
@@ -135,8 +127,6 @@ const App = () => {
     return null;
   }
 
-  const contextUsageView = selectContextUsageView(contextUsage, config.model);
-
   return (
     <Box flexDirection="column" width={screenWidth} height={screenHeight}>
       <TranscriptViewport
@@ -155,33 +145,83 @@ const App = () => {
           isExiting={isExiting}
         />
 
-        <Box paddingX={1} height={1}>
-          {contextUsageView ? (
-            <>
-              {contextUsageView.bar ? (
-                <>
-                  <Text color="gray" dimColor>{contextUsageView.text} </Text>
-                  <Text backgroundColor={contextUsageView.bar.usedBackgroundColor}>
-                    {contextUsageView.bar.used}
-                  </Text>
-                  <Text backgroundColor={contextUsageView.bar.unusedBackgroundColor}>
-                    {contextUsageView.bar.unused}
-                  </Text>
-                  <Text color="gray" dimColor>{` ${contextUsageView.bar.suffix}`}</Text>
-                </>
-              ) : (
-                <Text color={contextUsageView.color} dimColor={contextUsageView.color === "gray"}>
-                  {contextUsageView.text}
-                </Text>
-              )}
-            </>
-          ) : (
-            <Text> </Text>
-          )}
-        </Box>
+        <ContextUsageFooter config={config} contextUsage={contextUsage} />
       </Box>
     </Box>
   );
 };
+
+function useConfigurationState(): [
+  boolean | null,
+  Dispatch<SetStateAction<boolean | null>>,
+] {
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  useEffect(() => {
+    setConfigured(hasConfig());
+  }, []);
+  return [configured, setConfigured];
+}
+
+interface SlashCommandHandlers {
+  appendSystemMessage: (content: string) => void;
+  clearChat: () => void;
+  startSetup: () => void;
+}
+
+function handleSlashCommand(
+  commandText: string,
+  handlers: SlashCommandHandlers,
+): void {
+  const parsed = parseSlashInput(commandText);
+  if (!parsed) {
+    handlers.appendSystemMessage(`未知命令: ${commandText}\n输入 /help 查看可用命令`);
+    return;
+  }
+
+  handlers.appendSystemMessage(parsed.command.handler(parsed.args, {
+    clearChat: handlers.clearChat,
+    startSetup: handlers.startSetup,
+  }));
+}
+
+function ContextUsageFooter({
+  config,
+  contextUsage,
+}: {
+  config: AppConfig;
+  contextUsage: Parameters<typeof selectContextUsageView>[0];
+}) {
+  const contextUsageView = selectContextUsageView(contextUsage, config.model);
+  if (!contextUsageView) {
+    return <Box paddingX={1} height={1}><Text> </Text></Box>;
+  }
+  return (
+    <Box paddingX={1} height={1}>
+      {contextUsageView.bar
+        ? <ContextUsageBar view={contextUsageView} />
+        : (
+          <Text color={contextUsageView.color} dimColor={contextUsageView.color === "gray"}>
+            {contextUsageView.text}
+          </Text>
+        )}
+    </Box>
+  );
+}
+
+function ContextUsageBar({
+  view,
+}: {
+  view: NonNullable<ReturnType<typeof selectContextUsageView>>;
+}) {
+  if (!view.bar) return null;
+  return (
+    <>
+      <Text color="gray" dimColor>{view.text} </Text>
+      <Text backgroundColor={view.bar.usedBackgroundColor}>{view.bar.used}</Text>
+      <Text backgroundColor={view.bar.unusedBackgroundColor}>{view.bar.unused}</Text>
+      <Text color="gray" dimColor>{` ${view.bar.suffix}`}</Text>
+    </>
+  );
+}
 
 export default App;

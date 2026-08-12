@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isInsideWorkspace } from "./workspacePath.js";
 
 export type ShellKind = "auto" | "powershell" | "bash";
 
@@ -68,7 +69,11 @@ function selectShell(shell: ShellKind): Exclude<ShellKind, "auto"> {
 
 function normalizeStartCwd(): string {
   const workspaceRoot = process.cwd();
-  if (sessionCwd === undefined || !isInsideWorkspace(sessionCwd, workspaceRoot) || !fs.existsSync(sessionCwd)) {
+  if (
+    sessionCwd === undefined ||
+    !isInsideWorkspace(sessionCwd, workspaceRoot) ||
+    !fs.existsSync(sessionCwd)
+  ) {
     sessionCwd = workspaceRoot;
   }
   return sessionCwd;
@@ -248,7 +253,8 @@ function buildCompletedResult(
   const extracted = extractCwd(rawOutput, context.marker);
   const nextCwd = extracted.cwd ?? context.startCwd;
   const workspaceRoot = process.cwd();
-  const cwdReset = !isInsideWorkspace(nextCwd, workspaceRoot) || !fs.existsSync(nextCwd);
+  const cwdReset =
+    !isInsideWorkspace(nextCwd, workspaceRoot) || !fs.existsSync(nextCwd);
   sessionCwd = cwdReset ? workspaceRoot : nextCwd;
   const output = truncateOutput(extracted.output);
   return {
@@ -327,13 +333,6 @@ function buildSpawnErrorResult(
     cwdReset: false,
     error: error.message,
   };
-}
-
-function isInsideWorkspace(candidatePath: string, workspaceRoot: string): boolean {
-  const resolvedWorkspace = path.resolve(workspaceRoot);
-  const resolvedCandidate = path.resolve(candidatePath);
-  const relative = path.relative(resolvedWorkspace, resolvedCandidate);
-  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
 function escapeRegExp(value: string): string {

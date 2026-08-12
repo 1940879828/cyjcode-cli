@@ -10,10 +10,10 @@ import {
   normalizeLineEndings,
   readTextFileMetadata,
   rememberFileSnapshot,
-  resolveInsideWorkspace,
   splitLines,
 } from "./fileState.js";
 import type { Tool, ToolResult } from "./types.js";
+import { resolveInsideWorkspace } from "./workspacePath.js";
 
 interface Match {
   start: number;

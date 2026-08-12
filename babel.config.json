@@ -20,6 +20,8 @@
   "ignore": [
     "**/*.test.ts",
     "**/*.test.tsx",
+    "src/devmock/**",
+    "src/test/**",
     "devmock/**",
     "test/**"
   ]
