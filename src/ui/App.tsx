@@ -31,7 +31,9 @@ const App = () => {
   }, []);
 
   const handleSubmit = (text: string) => {
+    // 用户提交的内容
     const commandText = text.trim();
+    // 把用户提交的内容记进历史
     setInputHistory((previousHistory) =>
       appendInputHistory(previousHistory, text),
     );
