@@ -23,10 +23,19 @@ test("/help output lists /init", () => {
   });
 
   assert.match(output, /\/init\s+生成或更新 AGENTS\.md 项目说明/);
+  assert.match(output, /\/model\s+查看、添加和切换模型/);
 });
 
 test("slashCommands includes /init", () => {
   assert.ok(slashCommands.some((command) =>
     command.name === "/init" && command.execution === "agent"
   ));
+});
+
+test("parseSlashInput recognizes /model as a local command", () => {
+  const parsed = parseSlashInput("/model deepseek-v4-flash");
+
+  assert.equal(parsed?.command.kind, "model");
+  assert.equal(parsed?.command.execution, "local");
+  assert.deepEqual(parsed?.args, ["deepseek-v4-flash"]);
 });

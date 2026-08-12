@@ -1,7 +1,8 @@
 import { getConfig, getConfigPath } from "../config/store.js";
+import { handleModelCommand } from "./modelCommand.js";
 
 /** 命令类型，作为分发依据 */
-export type SlashCommandKind = "help" | "config" | "clear" | "setup" | "init";
+export type SlashCommandKind = "help" | "config" | "clear" | "setup" | "model" | "init";
 
 /** 命令执行时注入的依赖，把副作用从命令定义解耦出来 */
 export interface SlashCommandContext {
@@ -79,6 +80,13 @@ export const slashCommands: SlashCommand[] = [
       ctx.startSetup();
       return "重新配置 API 连接…";
     },
+  },
+  {
+    kind: "model",
+    execution: "local",
+    name: "/model",
+    description: "查看、添加和切换模型",
+    handler: (args) => handleModelCommand(args),
   },
   {
     kind: "init",
