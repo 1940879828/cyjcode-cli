@@ -1,5 +1,12 @@
 import fs from "node:fs";
-import path from "node:path";
+import {
+  createSnippet,
+  formatWithLineNumbers,
+  readTextFileMetadata,
+  rememberFileSnapshot,
+  resolveInsideWorkspace,
+  splitLines,
+} from "./fileState.js";
 import type { Tool, ToolResult } from "./types.js";
 
 const read: Tool = {
@@ -37,25 +44,23 @@ const read: Tool = {
       };
     }
 
-    // 安全检查
-    const resolved = path.resolve(filePath);
-    const cwd = process.cwd();
-    if (!resolved.startsWith(cwd)) {
+    const resolved = resolveInsideWorkspace(filePath);
+    if (!resolved.success) {
       return {
         success: false,
-        error: `路径穿越拒绝: ${filePath}`,
+        error: resolved.error,
       };
     }
 
     try {
-      if (!fs.existsSync(resolved)) {
+      if (!fs.existsSync(resolved.path)) {
         return {
           success: false,
           error: `文件不存在: ${filePath}`,
         };
       }
 
-      const stat = fs.statSync(resolved);
+      const stat = fs.statSync(resolved.path);
       if (stat.isDirectory()) {
         return {
           success: false,
@@ -71,30 +76,42 @@ const read: Tool = {
         };
       }
 
-      const content = fs.readFileSync(resolved, "utf-8");
-      const lines = content.split("\n");
+      const metadata = readTextFileMetadata(resolved.path);
+      rememberFileSnapshot(resolved.path, metadata);
+      const lines = splitLines(metadata.content);
 
-      const startLine = (offset ?? 1) - 1;
-      const endLine = limit
-        ? Math.min(startLine + limit, lines.length)
-        : lines.length;
-
-      if (startLine < 0 || startLine >= lines.length) {
+      const parsedRange = parseReadRange(offset, limit, lines.length);
+      if (!parsedRange.success) {
         return {
           success: false,
-          error: `offset ${offset} 超出文件行数范围 (共 ${lines.length} 行)`,
+          error: parsedRange.error,
         };
       }
 
-      const sliced = lines.slice(startLine, endLine);
-      // 添加行号
-      const numbered = sliced
-        .map((line, i) => `${startLine + i + 1}: ${line}`)
-        .join("\n");
+      const { startLine, endLineExclusive } = parsedRange;
+      const sliced = lines.slice(startLine, endLineExclusive);
+      const displayStartLine = startLine + 1;
+      const displayEndLine = displayStartLine + sliced.length - 1;
+      const snippet = createSnippet(
+        resolved.path,
+        displayStartLine,
+        displayEndLine,
+        sliced.join("\n"),
+        metadata,
+      );
+      const numbered = metadata.content === "" ? "" : formatWithLineNumbers(sliced, displayStartLine);
 
       return {
         success: true,
         data: numbered || "(空文件)",
+        metadata: {
+          snippet: {
+            id: snippet.id,
+            filePath: snippet.filePath,
+            startLine: snippet.startLine,
+            endLine: snippet.endLine,
+          },
+        },
       };
     } catch (error) {
       return {
@@ -104,5 +121,39 @@ const read: Tool = {
     }
   },
 };
+
+function parseReadRange(
+  offset: number | undefined,
+  limit: number | undefined,
+  totalLines: number,
+): { success: true; startLine: number; endLineExclusive: number } | { success: false; error: string } {
+  if (offset !== undefined && (!Number.isInteger(offset) || offset < 1)) {
+    return {
+      success: false,
+      error: "offset 必须是大于等于 1 的整数",
+    };
+  }
+
+  const startLine = offset === undefined ? 0 : offset - 1;
+  if (startLine >= totalLines) {
+    return {
+      success: false,
+      error: `offset ${offset} 超出文件行数范围 (共 ${totalLines} 行)`,
+    };
+  }
+
+  if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
+    return {
+      success: false,
+      error: "limit 必须是大于 0 的整数",
+    };
+  }
+
+  return {
+    success: true,
+    startLine,
+    endLineExclusive: limit === undefined ? totalLines : Math.min(startLine + limit, totalLines),
+  };
+}
 
 export default read;

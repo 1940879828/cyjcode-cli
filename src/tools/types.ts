@@ -4,6 +4,7 @@ export interface ToolResult {
   success: boolean;
   data?: string;
   error?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Tool {

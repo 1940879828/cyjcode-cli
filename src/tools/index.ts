@@ -4,8 +4,9 @@ import search from "./search.js";
 import read from "./read.js";
 import write from "./write.js";
 import rename from "./rename.js";
+import edit from "./edit.js";
 
-export const allTools: Tool[] = [listDir, search, read, write, rename];
+export const allTools: Tool[] = [listDir, search, read, write, edit, rename];
 
 const toolMap = new Map<string, Tool>();
 for (const tool of allTools) {

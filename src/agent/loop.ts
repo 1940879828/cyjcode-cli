@@ -76,10 +76,25 @@ async function* emitToolExecution(
   yield { type: "tool_call", callId: tc.id, name: tc.function.name, arguments: parsedArgs };
   yield { type: "tool_result", callId: tc.id, name: tc.function.name, result };
 
-  const resultStr = result.success
-    ? result.data ?? "成功"
-    : `错误: ${result.error}`;
+  const resultStr = formatToolResultForModel(result);
   appendToolResult(tc.id, tc.function.name, resultStr);
+}
+
+function formatToolResultForModel(result: ToolResult): string {
+  if (!result.metadata) {
+    return result.success ? result.data ?? "成功" : `错误: ${result.error}`;
+  }
+
+  return JSON.stringify(
+    {
+      success: result.success,
+      data: result.data,
+      error: result.error,
+      metadata: result.metadata,
+    },
+    null,
+    2,
+  );
 }
 
 /** 尝试解析工具参数，失败返回 null */
