@@ -12,15 +12,15 @@
 
 ## 开发命令
 
-| 命令 | 说明 |
-|---|---|
-| `npm run dev` | 使用 `tsx --watch` 直接运行 CLI，启动最快 |
-| `npm run dev:tsx` | 使用 `tsx` 单次运行 CLI |
+| 命令                  | 说明                                             |
+|---------------------|------------------------------------------------|
+| `npm run dev`       | 使用 `tsx --watch` 直接运行 CLI，启动最快                 |
+| `npm run dev:tsx`   | 使用 `tsx` 单次运行 CLI                              |
 | `npm run dev:babel` | Babel watch + React Compiler + Node watch 开发模式 |
-| `npm run devrecord` | 通过开发专用入口录制会话到 `mockdata/default.json` |
-| `npm run devmock` | 通过开发专用入口回放 `mockdata/default.json` |
-| `npm run typecheck` | TypeScript 类型检查 |
-| `npm run build` | 生产构建：类型检查 → Babel → esbuild 打包 |
+| `npm run devrecord` | 通过开发专用入口录制会话到 `mockdata/default.json`          |
+| `npm run devmock`   | 通过开发专用入口回放 `mockdata/default.json`             |
+| `npm run typecheck` | TypeScript 类型检查                                |
+| `npm run build`     | 生产构建：类型检查 → Babel → esbuild 打包                 |
 
 ## 构建管线
 

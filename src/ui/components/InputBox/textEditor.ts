@@ -149,7 +149,7 @@ export class TextCursor {
    * 与物理光标不同，这里光标是"文本里一个被反色的字符"，靠 Ink 的 diff 渲染移动
    * @param cursorChar 光标停在行尾/空行时用于代表光标的反色字符
    * @param fgCode 前景色 ANSI 码，色块以该颜色的反色呈现；不传则用默认反色
-   * @returns 每行已换行、光标所在位置被反色的渲染文本
+   * @returns {string} 每行已换行、光标所在位置被反色的渲染文本
    */
   renderWithCursor(cursorChar = " ", fgCode = ""): string {
     const { line, column } = this.getPosition();
@@ -187,7 +187,7 @@ export class TextCursor {
   /**
    * 插入文本
    * @param input 用户输入的字符
-   * @returns 返回一个新的 TextCursor 实例，表示用户输入后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示用户输入后的光标位置
    */
   insert(input: string): TextCursor {
     // 统一换行符为/n
@@ -202,7 +202,7 @@ export class TextCursor {
 
   /**
    * 光标向左移动
-   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示移动后的光标位置
    */
   left(): TextCursor {
     return this.next(this.text, this.previousBoundary(this.offset));
@@ -210,7 +210,7 @@ export class TextCursor {
 
   /**
    * 光标向右移动
-   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示移动后的光标位置
    */
   right(): TextCursor {
     return this.next(this.text, this.nextBoundary(this.offset));
@@ -218,7 +218,7 @@ export class TextCursor {
 
   /**
    * 光标向上移动
-   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示移动后的光标位置
    */
   up(): TextCursor {
     const position = this.getPosition();
@@ -227,7 +227,7 @@ export class TextCursor {
 
   /**
    * 光标向下移动
-   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示移动后的光标位置
    */
   down(): TextCursor {
     const position = this.getPosition();
@@ -236,7 +236,7 @@ export class TextCursor {
 
   /**
    * 光标移动到行首
-   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示移动后的光标位置
    */
   startOfLine(): TextCursor {
     return this.next(this.text, this.lines[this.lineForOffset(this.offset)]!.start);
@@ -244,7 +244,7 @@ export class TextCursor {
 
   /**
    * 光标移动到行尾
-   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示移动后的光标位置
    */
   endOfLine(): TextCursor {
     return this.next(this.text, this.lines[this.lineForOffset(this.offset)]!.end);
@@ -252,7 +252,7 @@ export class TextCursor {
 
   /**
    * 光标移动到上一个单词的开头
-   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示移动后的光标位置
    */
   prevWord(): TextCursor {
     return this.next(this.text, this.findPreviousWordStart());
@@ -260,7 +260,7 @@ export class TextCursor {
 
   /**
    * 光标移动到下一个单词的开头
-   * @returns 返回一个新的 TextCursor 实例，表示移动后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示移动后的光标位置
    */
   nextWord(): TextCursor {
     return this.next(this.text, this.findNextWordStart());
@@ -268,7 +268,7 @@ export class TextCursor {
 
   /**
    * 光标向左删除一个字符
-   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示删除后的光标位置
    */
   backspace(): TextCursor {
     // 在开头就不删除 返回当前这个TextCursor实例
@@ -281,7 +281,7 @@ export class TextCursor {
 
   /**
    * 光标向右删除一个字符
-   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示删除后的光标位置
    */
   deleteForward(): TextCursor {
     // 在结尾就不删除 返回当前这个TextCursor实例
@@ -294,7 +294,7 @@ export class TextCursor {
 
   /**
    * 光标向左删除一个单词
-   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示删除后的光标位置
    */
   deleteWordBefore(): TextCursor {
     // 找「前一个词的起点」
@@ -305,7 +305,7 @@ export class TextCursor {
 
   /**
    * 光标向右删除一个单词
-   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示删除后的光标位置
    */
   deleteWordAfter(): TextCursor {
     const end = this.findNextWordEnd();
@@ -314,7 +314,7 @@ export class TextCursor {
 
   /**
    * 光标向左删除到行首
-   * @returns 返回一个新的 TextCursor 实例，表示删除后的光标位置
+   * @returns {TextCursor} 返回一个新的 TextCursor 实例，表示删除后的光标位置
    */
   deleteToLineStart(): TextCursor {
     // 根据 offset（原始文本里的字符下标），反推出它落在哪一行，拿到行起点的坐标
@@ -366,7 +366,7 @@ export class TextCursor {
   /**
    * 
    * @param offset 
-   * @returns 上一个光标可停靠边界
+   * @returns {number} 上一个光标可停靠边界
    */
   private previousBoundary(offset: number): number {
     let result = 0;
@@ -430,7 +430,7 @@ export class TextCursor {
    * 给他开头坐标、结束坐标，他自己去拿用户输入的所有this.text，然后把这段文本切割出来，然后返回一个"显示行"对象
    * @param start 起始下标（在原始文本中的位置）
    * @param end 结束下标（在原始文本中的位置）
-   * @returns 一个"显示行"对象
+   * @returns {WrappedLine} 一个"显示行"对象
    */ 
   private makeLine(start: number, end: number): WrappedLine {
     return { start, end, text: this.text.slice(start, end) };
@@ -439,7 +439,7 @@ export class TextCursor {
   /**
    * 根据 offset（原始文本里的字符下标），反推出它落在哪一行
    * 后续可做二分查找优化
-   * @returns 行下标
+   * @returns {number} 从 0 开始的视觉行下标
    */
   private lineForOffset(offset: number): number {
     for (let index = this.lines.length - 1; index >= 0; index--) {
@@ -476,7 +476,7 @@ export class TextCursor {
 
   /**
    * 找「前一个词的起点」
-   * @returns 字符下标（offset）
+   * @returns {number} 字符下标（offset）
    */
   private findPreviousWordStart(): number {
     let previous = 0;// 兜底：光标已在最前/无更早词时，停在文本起点
@@ -491,7 +491,7 @@ export class TextCursor {
 
   /**
    * 找「后一个词的起点」
-   * @returns 
+   * @returns {number} 后一个词的起始字符下标（offset）
    */
   private findNextWordStart(): number {
     for (const word of wordSegments(this.text)) {
@@ -504,7 +504,7 @@ export class TextCursor {
 
   /**
    * 找「后一个词的终点」
-   * @returns 
+   * @returns {number} 后一个词的结束字符下标（offset）
    */
   private findNextWordEnd(): number {
     for (const word of wordSegments(this.text)) {

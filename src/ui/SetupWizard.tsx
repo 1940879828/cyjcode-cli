@@ -1,4 +1,4 @@
-import { useState, useLayoutEffect, useRef } from "react";
+import React, { useState, useLayoutEffect, useRef } from "react";
 import { Box, Text, useCursor, useInput, usePaste, measureElement } from "ink";
 import type { CursorPosition, DOMElement } from "ink";
 import stringWidth from "string-width";

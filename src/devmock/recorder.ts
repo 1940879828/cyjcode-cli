@@ -24,8 +24,8 @@ export function getRecordPath(): string | null {
 
 class SessionRecorder {
   private events: RecordedEvent[] = [];
-  private userMessage: string;
-  private outputPath: string;
+  private readonly userMessage: string;
+  private readonly outputPath: string;
 
   constructor(userMessage: string, outputPath: string) {
     this.userMessage = userMessage;

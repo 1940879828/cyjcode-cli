@@ -176,7 +176,7 @@ export function createInputBoxState(): InputBoxState {
  * - 这个按键对输入框意味着什么操作
  * @param input 实际输入的字符内容
  * @param key 	按键状态描述（哪个键 + 哪些修饰键）
- * @returns 改变输入框状态的用户动作
+ * @returns {InputBoxCommand} 改变输入框状态的用户动作
  */
 export function resolveInputBoxCommand(
   input: string,
@@ -225,7 +225,7 @@ export function resolveInputBoxCommand(
  * @param state 当前状态
  * @param event 要处理的事件（用户动作）
  * @param context 布局和历史列表等纯函数外部上下文
- * @returns 
+ * @returns {InputBoxState} 处理事件后的输入框状态
  */
 export function reduceInputBoxState(
   state: InputBoxState,
@@ -273,7 +273,7 @@ export function reduceInputBoxState(
  * 基于现在的状态，渲染出来的文本是什么、光标要放在哪里？
  * @param state 
  * @param layout 
- * @returns 
+ * @returns {InputBoxView} 输入框渲染视图
  */
 // 光标色块的前景色：24 位真彩色，与 Header 里 " Code" 的 TIMER_BLUE (#55A8E8) 一致。
 // \x1b[38;2;R;G;Bm 设置 RGB 前景色，配合反色显示为同色背景块。
@@ -422,7 +422,7 @@ const restoreDraftBeforeHistory = (state: InputBoxState): InputBoxState => {
  * @param state 
  * @param layout 
  * @param update 
- * @returns 
+ * @returns {InputBoxState} 更新光标后的输入框状态
  */
 // 光标移动只是查看历史条目，保留 historyBrowsing 才能继续上下浏览并恢复原草稿。
 const updateCursor = (
@@ -488,7 +488,7 @@ export const appendInputHistory = (
  * 把 CursorMovement（光标移动枚举）"翻译"成 TextCursor 的具体移动方法调用
  * @param cursor 当前光标
  * @param movement 要做的移动动作
- * @returns 
+ * @returns {TextCursor} 移动后的光标
  */
 const moveCursorBy = (
   cursor: TextCursor,

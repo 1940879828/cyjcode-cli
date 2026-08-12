@@ -72,7 +72,7 @@ const App = ({ agentRunner }: AppProps) => {
       });
       return;
     }
-    sendMessage(text);
+    sendMessage(text).then();
   };
 
   const inputController = useInputBoxController({

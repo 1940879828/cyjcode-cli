@@ -1,5 +1,3 @@
-import type { z } from "zod";
-
 export interface ToolResult {
   success: boolean;
   data?: string;
