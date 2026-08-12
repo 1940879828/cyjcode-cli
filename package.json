@@ -17,10 +17,11 @@
     "typecheck": "tsc -p ./ --noEmit",
     "test:inputbox": "node --import tsx --test tests/inputBoxModel.test.ts",
     "test:shell": "node --import tsx --test tests/shellTool.test.ts",
-    "test:tools": "node --import tsx --test tests/toolsEdit.test.ts tests/shellTool.test.ts",
+    "test:style": "node --import tsx --test tests/codeStyle.test.ts",
+    "test:tools": "node --import tsx --test tests/toolsEdit.test.ts tests/toolsSearch.test.ts tests/toolsWorkspacePath.test.ts tests/shellTool.test.ts",
     "build:babel": "node -e \"require('node:fs').rmSync('.babel-out',{recursive:true,force:true})\" && babel src --out-dir .babel-out --extensions .ts,.tsx --ignore \"src/devmock/**\",\"src/test/**\"",
     "build:bundle": "esbuild .babel-out/cli.js --bundle --platform=node --format=esm --outfile=dist/cli.js --banner:js=\"#!/usr/bin/env node\" --packages=external",
-    "build": "npm run typecheck && npm run build:babel && npm run build:bundle"
+    "build": "npm run typecheck && npm run test:style && npm run build:babel && npm run build:bundle"
   },
   "dependencies": {
     "chalk": "^5.6.2",
