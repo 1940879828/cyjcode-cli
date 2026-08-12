@@ -67,6 +67,7 @@ const App = ({ agentRunner }: AppProps) => {
       handleSlashCommand(commandText, {
         appendSystemMessage,
         clearChat,
+        sendMessage,
         startSetup: () => setConfigured(false),
       });
       return;
@@ -165,6 +166,7 @@ function useConfigurationState(): [
 interface SlashCommandHandlers {
   appendSystemMessage: (content: string) => void;
   clearChat: () => void;
+  sendMessage: (text: string) => Promise<void>;
   startSetup: () => void;
 }
 
@@ -175,6 +177,11 @@ function handleSlashCommand(
   const parsed = parseSlashInput(commandText);
   if (!parsed) {
     handlers.appendSystemMessage(`未知命令: ${commandText}\n输入 /help 查看可用命令`);
+    return;
+  }
+
+  if (parsed.command.execution === "agent") {
+    void handlers.sendMessage(parsed.command.name);
     return;
   }
 

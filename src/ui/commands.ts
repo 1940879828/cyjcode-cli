@@ -1,7 +1,7 @@
 import { getConfig, getConfigPath } from "../config/store.js";
 
 /** 命令类型，作为分发依据 */
-export type SlashCommandKind = "help" | "config" | "clear" | "setup";
+export type SlashCommandKind = "help" | "config" | "clear" | "setup" | "init";
 
 /** 命令执行时注入的依赖，把副作用从命令定义解耦出来 */
 export interface SlashCommandContext {
@@ -9,16 +9,27 @@ export interface SlashCommandContext {
   startSetup: () => void;
 }
 
-export interface SlashCommand {
+export interface LocalSlashCommand {
   kind: SlashCommandKind;
+  execution: "local";
   name: string;
   description: string;
   handler: (args: string[], ctx: SlashCommandContext) => string;
 }
 
+export interface AgentSlashCommand {
+  kind: SlashCommandKind;
+  execution: "agent";
+  name: string;
+  description: string;
+}
+
+export type SlashCommand = LocalSlashCommand | AgentSlashCommand;
+
 export const slashCommands: SlashCommand[] = [
   {
     kind: "help",
+    execution: "local",
     name: "/help",
     description: "显示所有可用命令",
     handler: () => {
@@ -31,6 +42,7 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     kind: "config",
+    execution: "local",
     name: "/config",
     description: "显示当前配置",
     handler: () => {
@@ -50,6 +62,7 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     kind: "clear",
+    execution: "local",
     name: "/clear",
     description: "清空对话历史",
     handler: (_args, ctx) => {
@@ -59,12 +72,19 @@ export const slashCommands: SlashCommand[] = [
   },
   {
     kind: "setup",
+    execution: "local",
     name: "/setup",
     description: "重新配置 API 连接",
     handler: (_args, ctx) => {
       ctx.startSetup();
       return "重新配置 API 连接…";
     },
+  },
+  {
+    kind: "init",
+    execution: "agent",
+    name: "/init",
+    description: "生成或更新 AGENTS.md 项目说明",
   },
 ];
 

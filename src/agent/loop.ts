@@ -4,6 +4,7 @@ import { getTool, toolsToOpenAI } from "../tools/index.js";
 import type { ToolResult } from "../tools/types.js";
 import { log } from "../utils/logger.js";
 import { addMessage, appendToolResult, getMessages } from "./history.js";
+import { expandInitCommandMessages } from "./initCommand.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
 import type { AgentEvent } from "./types.js";
@@ -82,7 +83,7 @@ async function* emitLlmTurn(
 }
 
 function buildMessages(systemPrompt: string): ChatMessage[] {
-  return [{ role: "system", content: systemPrompt }, ...getMessages()];
+  return [{ role: "system", content: systemPrompt }, ...expandInitCommandMessages(getMessages())];
 }
 
 function createTurnResponse(): TurnResponse {
