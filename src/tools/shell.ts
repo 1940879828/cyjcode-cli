@@ -20,7 +20,7 @@ const sideEffectSet = new Set<string>(sideEffects);
 const shell: Tool = {
   name: "shell",
   description:
-    "运行本地开发命令，适合测试、类型检查、构建、包管理、git 查询和环境检查。文件读写搜索优先使用 read/edit/write/search/listDir；删除、网络、修改 git 历史等命令必须用对应枚举声明 sideEffects。",
+    "运行本地开发命令，适合测试、类型检查、构建、包管理、git 查询和环境检查。tsx -e 避免顶层 await。文件读写搜索优先使用 read/edit/write/search/listDir；删除、网络、修改 git 历史等命令必须用对应枚举声明 sideEffects。",
   parameters: {
     type: "object",
     properties: {

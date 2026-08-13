@@ -268,8 +268,21 @@ function logToolEnd(input: ToolExecutionContext, result: ToolResult): void {
     turn: input.turn,
     tool: input.toolCall.function.name,
     success: result.success,
-    error: result.success ? undefined : result.error,
+    ...getToolFailureLog(result),
   });
+}
+
+function getToolFailureLog(result: ToolResult): Record<string, unknown> {
+  if (result.success) return {};
+  const metadata = result.metadata ?? {};
+  return {
+    error: result.error,
+    exitCode: metadata.exitCode,
+    timedOut: metadata.timedOut,
+    signal: metadata.signal,
+    shell: metadata.shell,
+    truncated: metadata.truncated,
+  };
 }
 
 function formatToolResultForModel(result: ToolResult): string {
