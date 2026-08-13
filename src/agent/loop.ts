@@ -1,54 +1,32 @@
 import { streamChat } from "../llm/client.js";
-import type { ChatMessage, StreamEvent, TokenUsage, ToolCall } from "../llm/types.js";
-import { getTool, toolsToOpenAI } from "../tools/index.js";
-import type { ToolResult } from "../tools/types.js";
+import type { ChatMessage } from "../llm/types.js";
+import { toolsToOpenAI } from "../tools/index.js";
 import { log } from "../utils/logger.js";
 import {
   addMessage,
-  appendToolResult,
   getHistoryLength,
-  getMessages,
   truncateHistory,
 } from "./history.js";
-import { expandInitCommandMessages } from "./initCommand.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
 import type { AgentEvent } from "./types.js";
+import { buildMessages } from "./messageBuilder.js";
+import {
+  consumeStreamEvent,
+  createTurnResponse,
+  logLlmResponse,
+  type TurnResponse,
+} from "./turnResponse.js";
+import { executeToolCalls } from "./toolExecution.js";
+import { toErrorMessage } from "./errors.js";
 
 const MAX_ROUNDS = 50;
 const EMPTY_REPLY = "（无回复内容）";
-const MAX_REASONING_LOG_CHARS = 500;
 
 interface SessionContext {
   sessionId: string;
   systemPrompt: string;
   tools: Record<string, unknown>[];
-}
-
-interface TurnResponse {
-  fullText: string;
-  reasoningLength: number;
-  reasoningDeltaCount: number;
-  toolCalls: ToolCall[] | null;
-  usage: TokenUsage | null;
-}
-
-interface ToolExecutionContext {
-  session: SessionContext;
-  turn: number;
-  toolCall: ToolCall;
-  args: Record<string, unknown>;
-}
-
-interface ReasoningLogContext {
-  sessionId: string;
-  turn: number;
-}
-
-interface StreamConsumeContext {
-  session: SessionContext;
-  turn: number;
-  response: TurnResponse;
 }
 
 interface AgentLoopOptions {
@@ -112,7 +90,7 @@ async function* handleTurnResponse(
   }
 
   addAssistantToolRequest(response);
-  yield* executeToolCalls(context, turn, response.toolCalls);
+  yield* executeToolCalls({ sessionId: context.sessionId, turn, toolCalls: response.toolCalls });
   yield { type: "turn_end", turn };
   return false;
 }
@@ -136,14 +114,14 @@ async function* emitLlmTurn(
   const messages = buildMessages(context.systemPrompt);
   log("llm.request", { sessionId: context.sessionId, turn, messageCount: messages.length });
 
-  const response = createTurnResponse();
+    const response = createTurnResponse();
   for await (const event of streamChat(createStreamChatOptions(context, messages, options))) {
     throwIfAborted(options.signal);
-    const forwarded = consumeStreamEvent(event, { session: context, turn, response });
+    const forwarded = consumeStreamEvent(event, { sessionId: context.sessionId, turn, response });
     if (forwarded) yield forwarded;
   }
 
-  logLlmResponse(context, turn, response);
+  logLlmResponse(context.sessionId, turn, response);
   return response;
 }
 
@@ -161,87 +139,6 @@ function createStreamChatOptions(
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new Error("已中断");
-}
-
-function buildMessages(systemPrompt: string): ChatMessage[] {
-  return [{ role: "system", content: systemPrompt }, ...expandInitCommandMessages(getMessages())];
-}
-
-function createTurnResponse(): TurnResponse {
-  return { fullText: "", reasoningLength: 0, reasoningDeltaCount: 0, toolCalls: null, usage: null };
-}
-
-function consumeStreamEvent(
-  event: StreamEvent,
-  context: StreamConsumeContext,
-): AgentEvent | null {
-  switch (event.type) {
-    case "reasoning_delta":
-      return consumeReasoningDelta(context.response, event.content, {
-        sessionId: context.session.sessionId,
-        turn: context.turn,
-      });
-    case "text_delta": return consumeTextDelta(context.response, event.content);
-    case "usage": return consumeUsage(context.response, event.usage);
-    case "done":
-      context.response.toolCalls = extractToolCalls(event.message.tool_calls);
-      return null;
-    case "tool_call_delta": return null;
-    case "error": throw event.error;
-  }
-}
-
-function consumeReasoningDelta(
-  response: TurnResponse,
-  content: string,
-  context: ReasoningLogContext,
-): AgentEvent {
-  response.reasoningLength += content.length;
-  response.reasoningDeltaCount += 1;
-  log("llm.reasoning_delta", {
-    sessionId: context.sessionId,
-    turn: context.turn,
-    length: content.length,
-    preview: truncateForLog(content, MAX_REASONING_LOG_CHARS),
-  });
-  return { type: "reasoning_delta", content };
-}
-
-function consumeTextDelta(response: TurnResponse, content: string): AgentEvent {
-  response.fullText += content;
-  return { type: "text_delta", content };
-}
-
-function consumeUsage(response: TurnResponse, usage: TokenUsage): AgentEvent {
-  response.usage = usage;
-  return { type: "usage", usage };
-}
-
-function extractToolCalls(toolCalls: ToolCall[] | undefined): ToolCall[] | null {
-  return toolCalls?.length ? toolCalls : null;
-}
-
-function logLlmResponse(
-  context: SessionContext,
-  turn: number,
-  response: TurnResponse,
-): void {
-  log("llm.response", {
-    sessionId: context.sessionId,
-    turn,
-    hasToolCalls: !!response.toolCalls,
-    toolCallCount: response.toolCalls?.length ?? 0,
-    reasoningLength: response.reasoningLength,
-    reasoningDeltaCount: response.reasoningDeltaCount,
-    responseLength: response.fullText.length,
-    promptTokens: response.usage?.promptTokens,
-    completionTokens: response.usage?.completionTokens,
-    totalTokens: response.usage?.totalTokens,
-  });
-}
-
-function truncateForLog(text: string, limit: number): string {
-  return text.length <= limit ? text : `${text.slice(0, limit)}…`;
 }
 
 async function* finishTextResponse(
@@ -264,126 +161,6 @@ function addAssistantToolRequest(response: TurnResponse): void {
   });
 }
 
-async function* executeToolCalls(
-  context: SessionContext,
-  turn: number,
-  toolCalls: ToolCall[],
-): AsyncGenerator<AgentEvent> {
-  for (const toolCall of toolCalls) {
-    const parsedArgs = parseToolArgs(toolCall.function.arguments);
-    if (!parsedArgs) {
-      yield* emitToolParseError(context, turn, toolCall);
-      continue;
-    }
-    yield* emitToolExecution({ session: context, turn, toolCall, args: parsedArgs });
-  }
-}
-
-async function* emitToolExecution(input: ToolExecutionContext): AsyncGenerator<AgentEvent> {
-  const { toolCall, args } = input;
-  const tool = getTool(toolCall.function.name);
-  if (!tool) {
-    yield* emitToolFailure({ ...input, errorMessage: "未注册的工具" });
-    return;
-  }
-
-  logToolStart(input);
-  const result = await runTool(tool, args);
-  logToolEnd(input, result);
-
-  yield { type: "tool_call", callId: toolCall.id, name: toolCall.function.name, arguments: args };
-  yield { type: "tool_result", callId: toolCall.id, name: toolCall.function.name, result };
-  appendToolResult(toolCall.id, toolCall.function.name, formatToolResultForModel(result));
-}
-
-async function runTool(
-  tool: NonNullable<ReturnType<typeof getTool>>,
-  parsedArgs: Record<string, unknown>,
-): Promise<ToolResult> {
-  try {
-    return await tool.execute(parsedArgs);
-  } catch (error) {
-    return { success: false, error: toErrorMessage(error) };
-  }
-}
-
-function* emitToolParseError(
-  context: SessionContext,
-  turn: number,
-  toolCall: ToolCall,
-): Generator<AgentEvent> {
-  const errorMessage = `工具参数 JSON 解析失败: ${toolCall.function.arguments}`;
-  yield* emitToolFailure({ session: context, turn, toolCall, args: {}, errorMessage });
-}
-
-function* emitToolFailure(
-  input: ToolExecutionContext & { errorMessage: string },
-): Generator<AgentEvent> {
-  logToolStart(input);
-  logToolEnd(input, { success: false, error: input.errorMessage });
-  yield { type: "tool_call", callId: input.toolCall.id, name: input.toolCall.function.name, arguments: input.args };
-  yield {
-    type: "tool_result",
-    callId: input.toolCall.id,
-    name: input.toolCall.function.name,
-    result: { success: false, error: input.errorMessage },
-  };
-  appendToolResult(input.toolCall.id, input.toolCall.function.name, `错误: ${input.errorMessage}`);
-}
-
-function logToolStart(input: ToolExecutionContext): void {
-  log("tool.start", {
-    sessionId: input.session.sessionId,
-    turn: input.turn,
-    tool: input.toolCall.function.name,
-    args: input.args,
-  });
-}
-
-function logToolEnd(input: ToolExecutionContext, result: ToolResult): void {
-  log("tool.end", {
-    sessionId: input.session.sessionId,
-    turn: input.turn,
-    tool: input.toolCall.function.name,
-    success: result.success,
-    ...getToolFailureLog(result),
-  });
-}
-
-function getToolFailureLog(result: ToolResult): Record<string, unknown> {
-  if (result.success) return {};
-  const metadata = result.metadata ?? {};
-  return {
-    error: result.error,
-    exitCode: metadata.exitCode,
-    timedOut: metadata.timedOut,
-    signal: metadata.signal,
-    shell: metadata.shell,
-    truncated: metadata.truncated,
-  };
-}
-
-function formatToolResultForModel(result: ToolResult): string {
-  if (!result.metadata) {
-    return result.success ? result.data ?? "成功" : `错误: ${result.error}`;
-  }
-
-  return JSON.stringify({
-    success: result.success,
-    data: result.data,
-    error: result.error,
-    metadata: result.metadata,
-  }, null, 2);
-}
-
-function parseToolArgs(raw: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 function* finishWithError(
   context: SessionContext,
   turn: number,
@@ -400,10 +177,6 @@ function* finishMaxRounds(context: SessionContext): Generator<AgentEvent> {
   log("error", { sessionId: context.sessionId, message: `达到最大轮数限制 (${MAX_ROUNDS})` });
   log("session.end", { sessionId: context.sessionId, status: "max_rounds", totalTurns: MAX_ROUNDS });
   yield { type: "error", error };
-}
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function generateSessionId(): string {
