@@ -10,10 +10,21 @@ const EVENT_COLORS: Record<string, string> = {
   "session.start": "magenta",
   "session.end": "magenta",
   "llm.request": "blue",
+  "llm.reasoning_delta": "yellow",
   "llm.response": "cyan",
   "tool.start": "yellow",
   "tool.end": "green",
   error: "red",
+};
+
+const EVENT_SUMMARIZERS: Record<string, (data: Record<string, unknown>) => string> = {
+  "llm.request": (data) => `model=${data.model || "?"} messages=${(data.messageCount as number) || 0}`,
+  "llm.reasoning_delta": (data) => `len=${data.length || 0} ${data.preview || ""}`,
+  "llm.response": (data) =>
+    `tokens=${data.totalTokens || "?"} reasoning=${data.reasoningLength || 0}/${data.reasoningDeltaCount || 0}`,
+  "tool.start": (data) => `${data.tool || "?"} args=${data.args ? JSON.stringify(data.args).substring(0, 80) : ""}`,
+  "tool.end": (data) => data.success ? "✓ 成功" : `✗ ${data.error || "失败"}`,
+  error: (data) => `${data.message || "未知错误"}`,
 };
 
 interface LogBatch {
@@ -157,21 +168,7 @@ function timestampToTime(ts: string): string {
 function summarize(entry: LogEntry): string {
   const d = entry.data;
   if (!d || Object.keys(d).length === 0) return "";
-
-  switch (entry.type) {
-    case "llm.request":
-      return `model=${d.model || "?"} messages=${(d.messageCount as number) || 0}`;
-    case "llm.response":
-      return `tokens=${d.totalTokens || "?"}`;
-    case "tool.start":
-      return `${d.tool || "?"} args=${d.args ? JSON.stringify(d.args).substring(0, 80) : ""}`;
-    case "tool.end":
-      return d.success ? "✓ 成功" : `✗ ${d.error || "失败"}`;
-    case "error":
-      return `${d.message || "未知错误"}`;
-    default:
-      return JSON.stringify(d).substring(0, 120);
-  }
+  return EVENT_SUMMARIZERS[entry.type]?.(d) ?? JSON.stringify(d).substring(0, 120);
 }
 
 /** 日志查看器中的水平分隔线 */

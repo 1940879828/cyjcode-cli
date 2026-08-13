@@ -8,13 +8,15 @@ export const DISABLE_SGR_MOUSE = "\x1b[?1000l\x1b[?1002l\x1b[?1006l";
 const SGR_MOUSE_PATTERN = /(?:\x1b\[|\[)?<(\d+)(?:;\d+){2,}[mM]/g;
 const LEGACY_MOUSE_PATTERN = /\x1b\[M.{3}/gs;
 const SGR_MOUSE_EVENT_PATTERN = /(?:\x1b\[|\[)?<(\d+);(\d+);(\d+)([mM])/g;
+const SGR_WHEEL_UP = "64";
+const SGR_WHEEL_DOWN = "65";
 const SGR_SHIFT_WHEEL_UP = "68";
 const SGR_SHIFT_WHEEL_DOWN = "69";
-// 左键按下/拖拽/松开 → 选中开始/扩展/结束；带 Shift 的拖拽由终端原生选中接管，不会上报到这里
+// Shift+左键按下/拖拽/松开 → 应用内选中；普通拖拽交给终端原生选择
 const SGR_SELECT_ACTIONS: Record<string, TranscriptSelectEvent["action"]> = {
-  "0": "start",
-  "32": "extend",
-  "3": "end",
+  "4": "start",
+  "36": "extend",
+  "7": "end",
 };
 
 export type MouseBatchAction =
@@ -32,15 +34,15 @@ export const getMouseBatchActions = (input: string, wheelRows: number): MouseBat
   return actions;
 };
 
-// Shift+滚轮 → 滚动；左键事件 → 选中；其余鼠标事件消费掉不进入输入
+// 部分终端会吞掉 Shift+滚轮，只上报普通滚轮；两种编码都视为滚动
 const getMouseBatchAction = (
   event: { code: string; terminator: string; col: number; row: number },
   wheelRows: number,
 ): MouseBatchAction => {
-  if (event.code === SGR_SHIFT_WHEEL_UP) {
+  if (event.code === SGR_WHEEL_UP || event.code === SGR_SHIFT_WHEEL_UP) {
     return { kind: "scroll", action: { type: "lineUp", amount: wheelRows } };
   }
-  if (event.code === SGR_SHIFT_WHEEL_DOWN) {
+  if (event.code === SGR_WHEEL_DOWN || event.code === SGR_SHIFT_WHEEL_DOWN) {
     return { kind: "scroll", action: { type: "lineDown", amount: wheelRows } };
   }
   const selectAction = getSelectAction(event.code, event.terminator);
@@ -50,12 +52,12 @@ const getMouseBatchAction = (
   return { kind: "ignore" };
 };
 
-// SGR 松开事件以 m 结尾（部分终端也会用 3 号事件码），统一视为选中结束
+// SGR 松开事件以 m 结尾；仅 Shift+左键释放进入应用内选中
 const getSelectAction = (
   code: string,
   terminator: string,
 ): TranscriptSelectEvent["action"] | null =>
-  terminator === "m" ? "end" : (SGR_SELECT_ACTIONS[code] ?? null);
+  terminator === "m" && code === "4" ? "end" : (SGR_SELECT_ACTIONS[code] ?? null);
 
 export const hasMouseInput = (input: string): boolean =>
   input.search(SGR_MOUSE_PATTERN) !== -1 || input.search(LEGACY_MOUSE_PATTERN) !== -1;

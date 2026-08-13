@@ -7,7 +7,13 @@ import {
   stripMouseInput,
 } from "../src/ui/hooks/terminalMouse.js";
 
-test("parses shift-modified wheel events into scroll actions", () => {
+test("parses wheel events into scroll actions", () => {
+  assert.deepEqual(getMouseBatchActions("\x1b[<64;18;22M", 5), [
+    { kind: "scroll", action: { type: "lineUp", amount: 5 } },
+  ]);
+  assert.deepEqual(getMouseBatchActions("[<65;18;22M", 5), [
+    { kind: "scroll", action: { type: "lineDown", amount: 5 } },
+  ]);
   assert.deepEqual(getMouseBatchActions("\x1b[<68;18;22M", 5), [
     { kind: "scroll", action: { type: "lineUp", amount: 5 } },
   ]);
@@ -16,38 +22,43 @@ test("parses shift-modified wheel events into scroll actions", () => {
   ]);
 });
 
-test("consumes plain wheel events to keep selection mode", () => {
-  assert.deepEqual(getMouseBatchActions("\x1b[<64;18;22M", 5), [{ kind: "ignore" }]);
+test("routes plain wheel events to transcript scroll", () => {
   assert.deepEqual(
     routeChatInput("\x1b[<65;18;22M", {}, {
       isStreaming: false,
       isTranscriptPinnedToBottom: true,
       wheelRows: 5,
     }),
-    { type: "mouseBatch", actions: [{ kind: "ignore" }] },
+    { type: "mouseBatch", actions: [{ kind: "scroll", action: { type: "lineDown", amount: 5 } }] },
   );
 });
 
-test("parses left-button press/drag/release into select events", () => {
-  assert.deepEqual(getMouseBatchActions("\x1b[<0;18;22M", 5), [
+test("parses shift-left drag events into select events", () => {
+  assert.deepEqual(getMouseBatchActions("\x1b[<4;18;22M", 5), [
     { kind: "select", event: { action: "start", col: 18, row: 22 } },
   ]);
-  assert.deepEqual(getMouseBatchActions("\x1b[<32;20;22M", 5), [
+  assert.deepEqual(getMouseBatchActions("\x1b[<36;20;22M", 5), [
     { kind: "select", event: { action: "extend", col: 20, row: 22 } },
   ]);
-  assert.deepEqual(getMouseBatchActions("\x1b[<0;18;22m", 5), [
+  assert.deepEqual(getMouseBatchActions("\x1b[<4;18;22m", 5), [
     { kind: "select", event: { action: "end", col: 18, row: 22 } },
   ]);
-  assert.deepEqual(getMouseBatchActions("\x1b[<3;18;22m", 5), [
+  assert.deepEqual(getMouseBatchActions("\x1b[<7;18;22M", 5), [
     { kind: "select", event: { action: "end", col: 18, row: 22 } },
   ]);
 });
 
+test("consumes plain left drag without application selection", () => {
+  assert.deepEqual(getMouseBatchActions("\x1b[<0;18;22M", 5), [{ kind: "ignore" }]);
+  assert.deepEqual(getMouseBatchActions("\x1b[<32;20;22M", 5), [{ kind: "ignore" }]);
+  assert.deepEqual(getMouseBatchActions("\x1b[<0;18;22m", 5), [{ kind: "ignore" }]);
+});
+
 test("keeps every event in a mixed batch in order", () => {
-  assert.deepEqual(getMouseBatchActions("\x1b[<0;18;22M\x1b[<32;20;22M\x1b[<64;20;22M", 5), [
+  assert.deepEqual(getMouseBatchActions("\x1b[<4;18;22M\x1b[<36;20;22M\x1b[<64;20;22M", 5), [
     { kind: "select", event: { action: "start", col: 18, row: 22 } },
     { kind: "select", event: { action: "extend", col: 20, row: 22 } },
-    { kind: "ignore" },
+    { kind: "scroll", action: { type: "lineUp", amount: 5 } },
   ]);
 });
 

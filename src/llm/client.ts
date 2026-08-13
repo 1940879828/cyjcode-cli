@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { getConfig } from "../config/store.js";
+import type { AppConfig } from "../config/store.js";
 import type {
   ChatMessage,
   TokenUsage,
@@ -17,7 +18,7 @@ export interface StreamChatOptions {
 type ChatChunk = OpenAI.Chat.Completions.ChatCompletionChunk;
 type StreamingParams = Omit<OpenAI.Chat.ChatCompletionCreateParamsStreaming, "tools"> & {
   tools?: Record<string, unknown>[];
-  thinking?: { type: "enabled" };
+  thinking?: { type: "enabled" | "disabled" };
   reasoning_effort?: string;
 };
 type Delta = ChatChunk["choices"][number]["delta"];
@@ -107,13 +108,21 @@ async function createChatStream(
 
 function buildStreamingParams(options: StreamChatOptions): StreamingParams {
   const config = getConfig();
+  return buildStreamingParamsWithConfig(options, config);
+}
+
+export function buildStreamingParamsWithConfig(
+  options: StreamChatOptions,
+  config: AppConfig,
+): StreamingParams {
   return {
     model: config.model,
     messages: toOpenAIMessages(options.messages),
     stream: true,
     stream_options: { include_usage: true },
+    thinking: { type: config.thinking ? "enabled" : "disabled" },
     ...(config.thinking
-      ? { thinking: { type: "enabled" as const }, reasoning_effort: config.reasoningEffort }
+      ? { reasoning_effort: config.reasoningEffort }
       : {}),
     ...(options.tools && options.tools.length > 0 ? { tools: options.tools } : {}),
   };

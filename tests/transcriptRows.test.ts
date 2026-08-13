@@ -11,7 +11,7 @@ import {
 import type { AssistantTurn } from "../src/ui/assistantTurn.js";
 import type { ChatEntry } from "../src/ui/hooks/index.js";
 
-const SELECTION_HINT = "  提示: 可拖拽选择文字，按住 Shift 滚轮浏览内容";
+const SELECTION_HINT = "  提示: 可拖拽选择文字，滚轮浏览内容";
 
 test("wraps plain English by terminal columns", () => {
   assert.deepEqual(wrapTextByColumns("hello world", 5), ["hello", " worl", "d"]);

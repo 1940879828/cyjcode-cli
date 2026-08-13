@@ -6,6 +6,7 @@ export type LogEventType =
   | "session.start"
   | "session.end"
   | "llm.request"
+  | "llm.reasoning_delta"
   | "llm.response"
   | "tool.start"
   | "tool.end"

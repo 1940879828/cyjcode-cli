@@ -73,7 +73,7 @@ const VALUE_COLOR = "#F5F7FF";
 const USER_PREFIX = "❯ ";
 const ASSISTANT_PREFIX = "● ";
 const CONTINUATION_PREFIX = "  ";
-const SELECTION_HINT = "提示: 可拖拽选择文字，按住 Shift 滚轮浏览内容";
+const SELECTION_HINT = "提示: 可拖拽选择文字，滚轮浏览内容";
 
 interface ThinkingRowsInput {
   rows: TranscriptRow[];
