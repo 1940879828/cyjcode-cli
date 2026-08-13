@@ -39,3 +39,20 @@ test("parseSlashInput recognizes /model as a local command", () => {
   assert.equal(parsed?.command.execution, "local");
   assert.deepEqual(parsed?.args, ["deepseek-v4-flash"]);
 });
+
+test("slashCommands includes /thinking and /effort as local commands", () => {
+  assert.ok(slashCommands.some((command) =>
+    command.name === "/thinking" && command.execution === "local"
+  ));
+  assert.ok(slashCommands.some((command) =>
+    command.name === "/effort" && command.execution === "local"
+  ));
+});
+
+test("parseSlashInput recognizes /effort with a value", () => {
+  const parsed = parseSlashInput("/effort xhigh");
+
+  assert.equal(parsed?.command.kind, "effort");
+  assert.equal(parsed?.command.execution, "local");
+  assert.deepEqual(parsed?.args, ["xhigh"]);
+});

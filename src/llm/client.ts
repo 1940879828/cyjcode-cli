@@ -18,6 +18,7 @@ type ChatChunk = OpenAI.Chat.Completions.ChatCompletionChunk;
 type StreamingParams = Omit<OpenAI.Chat.ChatCompletionCreateParamsStreaming, "tools"> & {
   tools?: Record<string, unknown>[];
   thinking?: { type: "enabled" };
+  reasoning_effort?: string;
 };
 type Delta = ChatChunk["choices"][number]["delta"];
 type DeltaToolCall = NonNullable<Delta["tool_calls"]>[number];
@@ -111,7 +112,9 @@ function buildStreamingParams(options: StreamChatOptions): StreamingParams {
     messages: toOpenAIMessages(options.messages),
     stream: true,
     stream_options: { include_usage: true },
-    ...(config.thinking ? { thinking: { type: "enabled" as const } } : {}),
+    ...(config.thinking
+      ? { thinking: { type: "enabled" as const }, reasoning_effort: config.reasoningEffort }
+      : {}),
     ...(options.tools && options.tools.length > 0 ? { tools: options.tools } : {}),
   };
 }

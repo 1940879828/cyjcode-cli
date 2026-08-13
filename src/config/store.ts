@@ -6,13 +6,16 @@ import { APP } from "./app.js";
 // 旧配置目录名（迁移来源）
 const LEGACY_DIR_NAME = ".cyjcode";
 
+export const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
 export interface AppConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
   models: string[];
   thinking: boolean;
-  reasoningEffort: string;
+  reasoningEffort: ReasoningEffort;
 }
 
 const CONFIG_DIR = path.join(os.homedir(), APP.configDirName);
@@ -27,7 +30,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   model: "deepseek-v4-pro",
   models: [],
   thinking: true,
-  reasoningEffort: "max",
+  reasoningEffort: "high",
 };
 
 function ensureDir(): void {
@@ -64,7 +67,7 @@ export function getConfig(): AppConfig {
   }
   const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
   const parsed = JSON.parse(raw) as Partial<AppConfig>;
-  return { ...DEFAULT_CONFIG, ...parsed };
+  return normalizeConfig({ ...DEFAULT_CONFIG, ...parsed });
 }
 
 // 写入配置文件
@@ -81,4 +84,11 @@ export function getConfigPath(): string {
 // 读取目录
 export function getConfigDir(): string {
   return CONFIG_DIR;
+}
+
+function normalizeConfig(config: AppConfig): AppConfig {
+  if ((REASONING_EFFORTS as readonly string[]).includes(config.reasoningEffort)) {
+    return config;
+  }
+  return { ...config, reasoningEffort: DEFAULT_CONFIG.reasoningEffort };
 }

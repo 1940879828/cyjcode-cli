@@ -139,7 +139,7 @@ const buildHeaderRows = (
     createHeaderRow(`│${" ".repeat(innerWidth)}│`),
     createHeaderInfoRow("Model", header.model, innerWidth),
     createHeaderInfoRow("Thinking", header.thinking ? "Enabled" : "Disabled", innerWidth),
-    createHeaderInfoRow("Reasoning Effort", header.reasoningEffort, innerWidth),
+    createHeaderInfoRow("Reasoning Effort", formatReasoningEffort(header.thinking, header.reasoningEffort), innerWidth),
     createHeaderInfoRow("Path", header.path, innerWidth),
     createHeaderRow(`╰${"─".repeat(innerWidth)}╯`),
     createHeaderRow(""),
@@ -185,6 +185,9 @@ const wrapHeaderTitleSegments = (
   { text: rightText, color: ENERGY_GOLD, bold: true },
   { text: "│", color: BORDER_COLOR },
 ];
+
+const formatReasoningEffort = (thinking: boolean, reasoningEffort: string): string =>
+  thinking ? reasoningEffort : "N/A";
 
 const createHeaderInfoRow = (
   label: string,

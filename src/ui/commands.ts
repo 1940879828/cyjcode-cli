@@ -1,8 +1,18 @@
 import { getConfig, getConfigPath } from "../config/store.js";
 import { handleModelCommand } from "./modelCommand.js";
+import { handleEffortCommand } from "./effortCommand.js";
+import { handleThinkingCommand } from "./thinkingCommand.js";
 
 /** 命令类型，作为分发依据 */
-export type SlashCommandKind = "help" | "config" | "clear" | "setup" | "model" | "init";
+export type SlashCommandKind =
+  | "help"
+  | "config"
+  | "clear"
+  | "setup"
+  | "model"
+  | "init"
+  | "thinking"
+  | "effort";
 
 /** 命令执行时注入的依赖，把副作用从命令定义解耦出来 */
 export interface SlashCommandContext {
@@ -87,6 +97,20 @@ export const slashCommands: SlashCommand[] = [
     name: "/model",
     description: "查看、添加和切换模型",
     handler: (args) => handleModelCommand(args),
+  },
+  {
+    kind: "thinking",
+    execution: "local",
+    name: "/thinking",
+    description: "开启或关闭思考模式",
+    handler: (args) => handleThinkingCommand(args),
+  },
+  {
+    kind: "effort",
+    execution: "local",
+    name: "/effort",
+    description: "设置 Reasoning Effort 推理强度",
+    handler: (args) => handleEffortCommand(args),
   },
   {
     kind: "init",

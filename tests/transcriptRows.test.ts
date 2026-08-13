@@ -146,3 +146,41 @@ test("does not show selection hint without completed thinking", () => {
 
   assert.equal(rows.some((row) => row.text === SELECTION_HINT), false);
 });
+
+test("shows reasoning effort when thinking is enabled", () => {
+  const rows = buildTranscriptRows({
+    header: {
+      version: "0.1.0",
+      model: "deepseek-v4-pro",
+      thinking: true,
+      reasoningEffort: "high",
+      path: "D:\\Project",
+    },
+    entries: [],
+    streamingReasoning: "",
+    streamingAssistantTurn: null,
+    width: 80,
+  });
+
+  const effortRow = rows.find((row) => row.text.includes("Reasoning Effort"));
+  assert.equal(effortRow?.text.includes("high"), true);
+});
+
+test("shows N/A for reasoning effort when thinking is disabled", () => {
+  const rows = buildTranscriptRows({
+    header: {
+      version: "0.1.0",
+      model: "deepseek-v4-pro",
+      thinking: false,
+      reasoningEffort: "high",
+      path: "D:\\Project",
+    },
+    entries: [],
+    streamingReasoning: "",
+    streamingAssistantTurn: null,
+    width: 80,
+  });
+
+  const effortRow = rows.find((row) => row.text.includes("Reasoning Effort"));
+  assert.equal(effortRow?.text.includes("N/A"), true);
+});

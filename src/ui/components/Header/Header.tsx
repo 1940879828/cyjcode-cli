@@ -49,7 +49,7 @@ const Header = ({ version, model, thinking, reasoningEffort }: HeaderProps) => {
   const infoRows = [
     { label: "Model", value: model },
     { label: "Thinking", value: thinking ? "Enabled" : "Disabled" },
-    { label: "Reasoning Effort", value: reasoningEffort },
+    { label: "Reasoning Effort", value: thinking ? reasoningEffort : "N/A" },
     { label: "Path", value: process.cwd() },
   ];
 
