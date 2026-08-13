@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildTranscriptEntryRows,
+  buildTranscriptHeaderRows,
   buildTranscriptRows,
+  buildTranscriptStreamingRows,
   wrapTextByColumns,
 } from "../src/ui/transcriptRows.js";
 import type { AssistantTurn } from "../src/ui/assistantTurn.js";
@@ -148,6 +151,38 @@ test("does not show selection hint without completed thinking", () => {
   assert.equal(rows.some((row) => row.text === SELECTION_HINT), false);
 });
 
+test("adds one spacer after a system command output block", () => {
+  const rows = buildTranscriptRows({
+    entries: [
+      {
+        id: "system_1",
+        role: "system",
+        content: "已设置 Reasoning Effort: low\n提示: Thinking 已关闭",
+        timestamp: 1,
+      },
+      {
+        id: "user_1",
+        role: "user",
+        content: "你觉得现在的ui目录需不需要整理",
+        timestamp: 2,
+      },
+    ],
+    streamingReasoning: "",
+    streamingAssistantTurn: null,
+    width: 80,
+  });
+
+  assert.deepEqual(
+    rows.map((row) => ({ kind: row.kind, text: row.text })),
+    [
+      { kind: "system", text: "已设置 Reasoning Effort: low" },
+      { kind: "system", text: "提示: Thinking 已关闭" },
+      { kind: "spacer", text: "" },
+      { kind: "user", text: "❯ 你觉得现在的ui目录需不需要整理" },
+    ],
+  );
+});
+
 test("shows reasoning effort when thinking is enabled", () => {
   const rows = buildTranscriptRows({
     header: {
@@ -185,3 +220,41 @@ test("shows N/A for reasoning effort when thinking is disabled", () => {
   const effortRow = rows.find((row) => row.text.includes("Reasoning Effort"));
   assert.equal(effortRow?.text.includes("N/A"), true);
 });
+
+test("split row builders match full transcript rows", () => {
+  const header = {
+    version: "0.1.0",
+    model: "deepseek-v4-pro",
+    thinking: true,
+    reasoningEffort: "high",
+    path: "D:\\Project",
+  };
+  const entry = createAssistantTurnFixture();
+  const fullRows = buildTranscriptRows({
+    header,
+    entries: [entry],
+    streamingReasoning: "thinking",
+    streamingAssistantTurn: null,
+    width: 80,
+  });
+
+  assert.deepEqual(fullRows, [
+    ...buildTranscriptHeaderRows({ header, width: 80 }),
+    ...buildTranscriptEntryRows({ entry, width: 80 }),
+    ...buildTranscriptStreamingRows({
+      streamingReasoning: "thinking",
+      streamingAssistantTurn: null,
+      width: 80,
+    }),
+  ]);
+});
+
+function createAssistantTurnFixture(): AssistantTurn {
+  return {
+    id: "assistant_split",
+    role: "assistant",
+    parts: [{ id: "assistant_split_text", kind: "text", content: "hello" }],
+    activeText: "",
+    timestamp: 1,
+  };
+}

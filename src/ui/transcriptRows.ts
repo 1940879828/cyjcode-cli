@@ -90,13 +90,42 @@ export const buildTranscriptRows = ({
   streamingAssistantTurn,
   width,
 }: BuildTranscriptRowsInput): TranscriptRow[] => {
+  return [
+    ...(header ? buildTranscriptHeaderRows({ header, width }) : []),
+    ...entries.flatMap((entry) => buildTranscriptEntryRows({ entry, width })),
+    ...buildTranscriptStreamingRows({ streamingReasoning, streamingAssistantTurn, width }),
+  ];
+};
+
+export const buildTranscriptHeaderRows = ({
+  header,
+  width,
+}: {
+  header: TranscriptHeader;
+  width: number;
+}): TranscriptRow[] => {
   const rows: TranscriptRow[] = [];
+  appendHeaderRows(rows, header, width);
+  return rows;
+};
 
-  if (header) appendHeaderRows(rows, header, width);
+export const buildTranscriptEntryRows = ({
+  entry,
+  width,
+}: {
+  entry: ChatEntry;
+  width: number;
+}): TranscriptRow[] => {
+  const rows: TranscriptRow[] = [];
+  appendEntryRows(rows, entry, width);
+  return rows;
+};
 
-  entries.forEach((entry) => appendEntryRows(rows, entry, width));
-
-  appendStreamingRows(rows, { streamingReasoning, streamingAssistantTurn, width });
+export const buildTranscriptStreamingRows = (
+  input: Pick<BuildTranscriptRowsInput, "streamingReasoning" | "streamingAssistantTurn" | "width">,
+): TranscriptRow[] => {
+  const rows: TranscriptRow[] = [];
+  appendStreamingRows(rows, input);
   return rows;
 };
 
@@ -258,15 +287,32 @@ const appendTextEntryRows = (
     return;
   }
 
-  appendWrappedRows(rows, {
-    id: entry.id,
-    kind,
-    content: entry.content,
-    width,
-    firstPrefix,
-    restPrefix,
-  });
+  appendRegularTextRows(rows, { entry, kind, firstPrefix, restPrefix, width });
 };
+
+const appendRegularTextRows = (
+  rows: TranscriptRow[],
+  input: {
+    entry: TextChatEntry;
+    kind: TranscriptRowKind;
+    firstPrefix: string;
+    restPrefix: string;
+    width: number;
+  },
+) => {
+  appendWrappedRows(rows, {
+    id: input.entry.id,
+    kind: input.kind,
+    content: input.entry.content,
+    width: input.width,
+    firstPrefix: input.firstPrefix,
+    restPrefix: input.restPrefix,
+  });
+  if (shouldAppendBlockSpacer(input.entry)) appendSpacerRow(rows, `${input.entry.id}_after`);
+};
+
+const shouldAppendBlockSpacer = (entry: TextChatEntry): boolean =>
+  entry.role === "system";
 
 const TEXT_ENTRY_CONFIGS: Record<TextChatEntry["role"], {
   kind: TranscriptRowKind;

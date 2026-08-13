@@ -1,12 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import type { AssistantTurn } from "../../assistantTurn.js";
 import type { ChatEntry } from "../../hooks/index.js";
-import {
-  buildTranscriptRows,
-  type TranscriptHeader,
-  type TranscriptRow,
-} from "../../transcriptRows.js";
+import type { BuildTranscriptRowsInput, TranscriptHeader, TranscriptRow } from "../../transcriptRows.js";
+import { buildCachedTranscriptRows, createTranscriptRowsCache } from "../../transcriptRowsCache.js";
 import {
   createTranscriptScrollState,
   getMaxOffset,
@@ -58,7 +55,7 @@ export const useTranscriptViewportController = ({
   height,
 }: UseTranscriptViewportControllerOptions): TranscriptViewportController => {
   const viewportHeight = Math.max(MIN_VIEWPORT_HEIGHT, height);
-  const rows = buildTranscriptRows({
+  const rows = useTranscriptRows({
     header,
     entries,
     streamingReasoning,
@@ -102,6 +99,11 @@ export const useTranscriptViewportController = ({
     scroll,
   };
 };
+
+function useTranscriptRows(input: BuildTranscriptRowsInput): TranscriptRow[] {
+  const cacheRef = useRef(createTranscriptRowsCache());
+  return buildCachedTranscriptRows(cacheRef.current, input);
+}
 
 const getRenderScrollState = ({
   state,
