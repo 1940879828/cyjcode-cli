@@ -44,7 +44,7 @@ interface CandidateInput {
   match: Match;
 }
 
-const edit: Tool = {
+const edit = {
   name: "edit",
   description:
     "基于 read 返回的 snippetId 对文件做安全的局部字符串替换。必须先读取文件再编辑。",
@@ -225,7 +225,7 @@ const edit: Tool = {
       };
     }
   },
-};
+} satisfies Tool;
 
 function parseExpectedOccurrences(
   value: unknown,

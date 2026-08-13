@@ -7,7 +7,7 @@ import { globWithNode, grepWithNode } from "./search/nodeFallbackSearch.js";
 import { globWithRipgrep, grepWithRipgrep } from "./search/ripgrepSearch.js";
 import { DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, type SearchArgs } from "./search/searchTypes.js";
 
-const search: Tool = {
+const search = {
   name: "search",
   description:
     "安全的 grep/glob 搜索工具。默认按内容 grep；mode='glob' 时按文件名 glob 匹配。所有路径限制在当前工作目录内。",
@@ -71,7 +71,7 @@ const search: Tool = {
       };
     }
   },
-};
+} satisfies Tool;
 
 function runSearch(args: SearchArgs): ToolResult {
   const pathCheck = validateExistingWorkspacePath(args);

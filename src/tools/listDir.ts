@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Tool, ToolResult } from "./types.js";
 import { resolveInsideWorkspace } from "./workspacePath.js";
 
-const listDir: Tool = {
+const listDir = {
   name: "listDir",
   description:
     "列出指定目录下的文件和子目录。返回文件名列表。",
@@ -39,7 +39,7 @@ const listDir: Tool = {
       };
     }
   },
-};
+} satisfies Tool;
 
 interface ListDirArgs {
   targetPath: string;

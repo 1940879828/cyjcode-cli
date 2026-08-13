@@ -1,16 +1,23 @@
 import { z } from "zod";
 import type { Tool, ToolResult } from "./types.js";
 
-interface DefineToolInput<TSchema extends z.ZodType> {
+interface DefineToolInput<TSchema extends z.ZodType, TResult extends Promise<ToolResult> | ToolResult> {
   name: string;
   description: string;
   schema: TSchema;
-  execute: (args: z.infer<TSchema>) => Promise<ToolResult> | ToolResult;
+  execute: (args: z.infer<TSchema>) => TResult;
 }
 
-export function defineTool<TSchema extends z.ZodType>(
-  input: DefineToolInput<TSchema>,
-): Tool {
+type DefinedTool<TResult extends Promise<ToolResult> | ToolResult> =
+  Omit<Tool, "execute"> & {
+    execute(args: Record<string, unknown>): TResult extends Promise<ToolResult>
+      ? Promise<ToolResult> | ToolResult
+      : ToolResult;
+  };
+
+export function defineTool<TSchema extends z.ZodType, TResult extends Promise<ToolResult> | ToolResult>(
+  input: DefineToolInput<TSchema, TResult>,
+): DefinedTool<TResult> {
   return {
     name: input.name,
     description: input.description,
@@ -20,7 +27,7 @@ export function defineTool<TSchema extends z.ZodType>(
       if (!parsed.success) return { success: false, error: formatSchemaError(parsed.error) };
       return input.execute(parsed.data);
     },
-  };
+  } as DefinedTool<TResult>;
 }
 
 function toParameters(schema: z.ZodType): Record<string, unknown> {

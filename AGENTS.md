@@ -86,6 +86,8 @@ npm run build        # 类型检查、Babel 编译并打包
 npm run test:inputbox# 运行输入框核心单元测试
 npm run devrecord    # 开发入口录制默认会话
 npm run devmock      # 开发入口回放 mockdata/default.json
+npm run typecheck:test # 测试文件 TypeScript 类型检查
+npm run test:all     # 运行全部测试
 ```
 
 完成代码修改后，至少运行 `npm run typecheck`；修改 `src/ui/components/InputBox/inputBoxModel.ts` 还需运行 `npm run test:inputbox`；涉及构建流程、入口或打包行为的修改还要运行 `npm run build`。如果测试或验证因环境、凭据或外部服务不可用而跳过，应在交付说明中明确写出。

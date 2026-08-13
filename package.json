@@ -15,10 +15,12 @@
     "devrecord": "tsx src/devmock/cli.tsx --record default.json",
     "devmock": "tsx src/devmock/cli.tsx --mock default.json",
     "typecheck": "tsc -p ./ --noEmit",
+    "typecheck:test": "tsc -p ./tsconfig.test.json --noEmit",
     "test:inputbox": "node --import tsx --test tests/inputBoxModel.test.ts",
     "test:shell": "node --import tsx --test tests/shellTool.test.ts",
     "test:style": "node --import tsx --test tests/codeStyle.test.ts",
     "test:tools": "node --import tsx --test tests/toolsEdit.test.ts tests/toolsSearch.test.ts tests/toolsWorkspacePath.test.ts tests/shellTool.test.ts",
+    "test:all": "npm run typecheck:test && node --import tsx --test tests/*.test.ts",
     "build:babel": "node -e \"require('node:fs').rmSync('.babel-out',{recursive:true,force:true})\" && babel src --out-dir .babel-out --extensions .ts,.tsx --ignore \"src/devmock/**\",\"src/test/**\"",
     "build:bundle": "esbuild .babel-out/cli.js --bundle --platform=node --format=esm --outfile=dist/cli.js --banner:js=\"#!/usr/bin/env node\" --packages=external",
     "build": "npm run typecheck && npm run test:style && npm run build:babel && npm run build:bundle"

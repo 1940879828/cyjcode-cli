@@ -10,10 +10,12 @@ import {
   resolveSelectionBounds,
   splitRowBySelection,
   splitRowPartsBySelection,
-  type TranscriptRow,
   type TranscriptSelection,
-  type TranscriptSourceUnit,
 } from "../src/ui/components/TranscriptViewport/transcriptSelection.js";
+import type {
+  TranscriptRow,
+  TranscriptSourceUnit,
+} from "../src/ui/components/TranscriptViewport/transcriptRows.js";
 
 const source = (id: string, text: string): TranscriptSourceUnit => ({ id, text });
 
@@ -77,7 +79,7 @@ test("start on decorative rows or outside the rows clears the selection", () => 
 });
 
 test("end copies the source text without prefixes or wrap artifacts", () => {
-  const rows = [
+  const rows: TranscriptRow[] = [
     sourceRow("u0_0", "❯ hello", "u0", 0, 5, "❯ "),
     sourceRow("u0_1", "  world", "u0", 6, 11, "  "),
   ];
@@ -182,7 +184,7 @@ test("computes per-unit ranges for multi-unit selections", () => {
 
 test("projects source selection onto rows, including prefix cells", () => {
   const sources = [source("u0", "abcdef")];
-  const rows = [
+  const rows: TranscriptRow[] = [
     sourceRow("u0_0", "❯ abcd", "u0", 0, 4, "❯ "),
     sourceRow("u0_1", "  ef", "u0", 4, 6, "  "),
   ];
@@ -199,7 +201,7 @@ test("projects source selection onto rows, including prefix cells", () => {
 
 test("excludes decorative rows and rows outside the selection", () => {
   const sources = [source("u0", "abcdef")];
-  const rows = [
+  const rows: TranscriptRow[] = [
     { id: "header_0", kind: "header", text: "──" },
     sourceRow("u0_0", "abc", "u0", 0, 3, ""),
     sourceRow("u0_1", "def", "u0", 3, 6, ""),

@@ -20,6 +20,8 @@
 | `npm run devrecord` | 通过开发专用入口录制会话到 `mockdata/default.json`          |
 | `npm run devmock`   | 通过开发专用入口回放 `mockdata/default.json`             |
 | `npm run typecheck` | TypeScript 类型检查                                |
+| `npm run typecheck:test` | 测试文件 TypeScript 类型检查                         |
+| `npm run test:all`  | 类型检查测试文件并运行全部 `tests/*.test.ts`              |
 | `npm run build`     | 生产构建：类型检查 → Babel → esbuild 打包                 |
 
 ## 构建管线

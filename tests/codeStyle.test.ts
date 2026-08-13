@@ -122,8 +122,8 @@ function getFunctionName(node: ts.FunctionDeclaration | ts.FunctionExpression | 
 
 function hasFunctionName(
   node: ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction,
-): node is ts.FunctionDeclaration | ts.FunctionExpression {
-  return (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) && Boolean(node.name);
+): node is (ts.FunctionDeclaration | ts.FunctionExpression) & { name: ts.Identifier } {
+  return (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) && node.name !== undefined;
 }
 
 function getLineCount(sourceFile: ts.SourceFile, node: ts.Node): number {

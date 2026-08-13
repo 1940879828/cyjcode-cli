@@ -252,9 +252,11 @@ function getSnippetMetadata(result: ToolResult): {
     };
   };
   assert.equal(typeof metadata.snippet?.id, "string");
-  assert.equal(typeof metadata.snippet.filePath, "string");
-  assert.equal(typeof metadata.snippet.startLine, "number");
-  assert.equal(typeof metadata.snippet.endLine, "number");
+  const snippet = metadata.snippet;
+  assert.ok(snippet);
+  assert.equal(typeof snippet.filePath, "string");
+  assert.equal(typeof snippet.startLine, "number");
+  assert.equal(typeof snippet.endLine, "number");
   return metadata.snippet as {
     id: string;
     filePath: string;
