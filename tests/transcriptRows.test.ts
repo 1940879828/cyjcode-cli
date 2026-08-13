@@ -65,6 +65,7 @@ test("builds stable transcript row order", () => {
       { kind: "tool", text: '  👀读取文件"src/a.ts" L1-2' },
       { kind: "assistant", text: "● done" },
       { kind: "spacer", text: "" },
+      { kind: "spacer", text: "" },
       { kind: "thinking", text: "Thinking: thinking" },
       { kind: "spacer", text: "" },
     ],

@@ -142,7 +142,6 @@ const buildHeaderRows = (
     createHeaderInfoRow("Reasoning Effort", formatReasoningEffort(header.thinking, header.reasoningEffort), innerWidth),
     createHeaderInfoRow("Path", header.path, innerWidth),
     createHeaderRow(`╰${"─".repeat(innerWidth)}╯`),
-    createHeaderRow(""),
   ];
 
 const createHeaderRow = (
@@ -344,6 +343,7 @@ const appendAssistantTurnRows = (
   turn.parts.forEach((part) => appendAssistantPartRows(rows, part, width));
 
   if (turn.activeText) appendActiveAssistantRow(rows, turn, width);
+  appendSpacerRow(rows, `${turn.id}_after`);
 };
 
 const appendAssistantPartRows = (
