@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentEvent } from "../agent/types.js";
+import type { AgentRunOptions } from "../ui/hooks/index.js";
 import type { SessionRecording } from "./types.js";
 
 const MOCKDATA_DIR = path.resolve(process.cwd(), "mockdata");
@@ -36,6 +37,7 @@ const sleep = (ms: number): Promise<void> =>
 export async function* mockAgentLoop(
   _userMessage: string,
   fileName: string,
+  options: AgentRunOptions = {},
 ): AsyncGenerator<AgentEvent> {
   const recording = await load(path.join(MOCKDATA_DIR, fileName));
   const events = recording.events;
@@ -43,10 +45,12 @@ export async function* mockAgentLoop(
   if (events.length === 0) return;
 
   for (let i = 0; i < events.length; i++) {
+    if (options.signal?.aborted) return;
     if (i > 0) {
       const delta = events[i].timestamp - events[i - 1].timestamp;
       if (delta > 0) await sleep(Math.min(delta, 500));
     }
+    if (options.signal?.aborted) return;
     yield events[i].event;
   }
 }

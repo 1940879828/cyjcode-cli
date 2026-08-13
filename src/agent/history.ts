@@ -10,6 +10,10 @@ export function getMessages(): ChatMessage[] {
   return [...messages];
 }
 
+export function getHistoryLength(): number {
+  return messages.length;
+}
+
 export function isHistoryEmpty(): boolean {
   return messages.length === 0;
 }
@@ -29,4 +33,8 @@ export function appendToolResult(
 
 export function clearHistory(): void {
   messages.length = 0;
+}
+
+export function truncateHistory(length: number): void {
+  messages.length = Math.max(0, Math.min(length, messages.length));
 }

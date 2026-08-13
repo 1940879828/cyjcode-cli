@@ -18,6 +18,7 @@ const STEP_LABELS: Record<Step, string> = {
 interface Props {
   onComplete: () => void;
   isExiting?: boolean;
+  exitStatusMessage?: string | null;
 }
 
 interface SetupValues {
@@ -33,7 +34,7 @@ interface StepValueWriters {
   setStep: (step: Step) => void;
 }
 
-const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
+const SetupWizard = ({ onComplete, isExiting = false, exitStatusMessage }: Props) => {
   const [step, setStep] = useState<Step>("baseUrl");
   const [baseUrl, setBaseUrl] = useState(DEFAULT_CONFIG.baseUrl);
   const [apiKey, setApiKey] = useState("");
@@ -104,9 +105,7 @@ const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
 
   return (
     <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
-        <Text color="cyan" bold>⚡ {APP.name} — 首次配置引导</Text>
-      </Box>
+      <Box marginBottom={1}><Text color="cyan" bold>⚡ {APP.name} — 首次配置引导</Text></Box>
 
       <Box marginBottom={1}>
         {STEP_ORDER.map((s, i) => (
@@ -133,7 +132,7 @@ const SetupWizard = ({ onComplete, isExiting = false }: Props) => {
       />
 
       <Box marginY={1}>
-        <Text color="gray">按 Enter 继续</Text>
+        <Text color={exitStatusMessage ? "yellow" : "gray"}>{exitStatusMessage ?? "按 Enter 继续"}</Text>
       </Box>
     </Box>
   );

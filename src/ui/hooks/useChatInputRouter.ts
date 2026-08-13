@@ -21,6 +21,7 @@ export interface ChatInputKey {
 
 export type ChatInputRoute =
   | { type: "exit" }
+  | { type: "interrupt" }
   | { type: "scroll"; actions: TranscriptScrollAction[] }
   | { type: "mouseBatch"; actions: MouseBatchAction[] }
   | { type: "input"; input: string; key: ChatInputKey }
@@ -40,18 +41,27 @@ export interface ChatInputRouterOptions {
   isTranscriptPinnedToBottom: boolean;
   wheelRows: number;
   requestExit: () => void;
+  cancelExitConfirmation: () => void;
+  interrupt: () => void;
   scroll: (action: TranscriptScrollAction) => void;
   select: (event: TranscriptSelectEvent) => void;
   handleInput: (input: string, key: Key) => void;
   handlePaste: (text: string) => void;
 }
 
+type RouteHandlers = Pick<
+  ChatInputRouterOptions,
+  "requestExit" | "interrupt" | "scroll" | "select" | "handleInput"
+>;
+
 export const routeChatInput = (
   input: string,
   key: ChatInputKey,
   context: ChatInputRouteContext,
 ): ChatInputRoute => {
-  if (isExitInput(input, key)) return { type: "exit" };
+  if (isExitInput(input, key)) {
+    return context.isStreaming ? { type: "interrupt" } : { type: "exit" };
+  }
 
   const mouseRoute = routeMouseInput(input, context.wheelRows);
   if (mouseRoute) return mouseRoute;
@@ -83,8 +93,10 @@ function useRouteInput(optionsRef: RefObject<ChatInputRouterOptions>, enabled: b
   useInput((input, key) => {
     const current = optionsRef.current;
     const route = routeChatInput(input, key, toRouteContext(current));
+    if (route.type !== "exit") current.cancelExitConfirmation();
     dispatchRoute(route, {
       requestExit: current.requestExit,
+      interrupt: current.interrupt,
       scroll: current.scroll,
       select: current.select,
       handleInput: current.handleInput,
@@ -95,7 +107,9 @@ function useRouteInput(optionsRef: RefObject<ChatInputRouterOptions>, enabled: b
 function useRoutePaste(optionsRef: RefObject<ChatInputRouterOptions>, enabled: boolean): void {
   usePaste((text) => {
     const current = optionsRef.current;
-    if (!current.isStreaming) current.handlePaste(text);
+    if (current.isStreaming) return;
+    current.cancelExitConfirmation();
+    current.handlePaste(text);
   }, { isActive: enabled });
 }
 
@@ -123,23 +137,20 @@ function canTrackMouse(enabled: boolean, mouseTrackingEnabled: boolean): boolean
 
 const dispatchRoute = (
   route: ChatInputRoute,
-  handlers: Pick<ChatInputRouterOptions, "requestExit" | "scroll" | "select" | "handleInput">,
+  handlers: RouteHandlers,
 ) => {
-  switch (route.type) {
-    case "exit":
-      handlers.requestExit();
-      return;
-    case "scroll":
-      route.actions.forEach(handlers.scroll);
-      return;
-    case "mouseBatch": route.actions.forEach((action) => dispatchMouseAction(action, handlers)); return;
-    case "input":
-      handlers.handleInput(route.input, route.key as Key);
-      return;
-    case "mouse":
-    case "ignore":
-      return;
-  }
+  if (route.type === "exit") return handlers.requestExit();
+  if (route.type === "interrupt") return handlers.interrupt();
+  if (route.type === "scroll") return route.actions.forEach(handlers.scroll);
+  if (route.type === "mouseBatch") return dispatchMouseBatch(route.actions, handlers);
+  if (route.type === "input") return handlers.handleInput(route.input, route.key as Key);
+};
+
+const dispatchMouseBatch = (
+  actions: MouseBatchAction[],
+  handlers: Pick<ChatInputRouterOptions, "scroll" | "select">,
+) => {
+  actions.forEach((action) => dispatchMouseAction(action, handlers));
 };
 
 const dispatchMouseAction = (

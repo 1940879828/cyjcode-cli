@@ -18,6 +18,7 @@ interface Props {
   maxVisibleLines: number;
   // 为 true 时输入框不可输入
   disabled: boolean;
+  statusMessage?: string | null;
   // true 表示 App 正在退出 : isActive 变 false 隐藏光标
   isExiting?: boolean;
 }
@@ -39,6 +40,7 @@ const InputBox = ({
   inputColumns,
   maxVisibleLines,
   disabled,
+  statusMessage,
   isExiting = false,
 }: Props) => {
   const isDimmed = disabled || isExiting;
@@ -57,7 +59,11 @@ const InputBox = ({
   return (
     <Box flexDirection="column" paddingX={0} marginTop={1}>
       <Box height={1}>
-        {disabled ? <LoadingStatus /> : <Text> </Text>}
+        {disabled || statusMessage ? (
+          <LoadingStatus message={statusMessage ?? undefined} />
+        ) : (
+          <Text> </Text>
+        )}
       </Box>
       <Box
         width={screenWidth - 1}

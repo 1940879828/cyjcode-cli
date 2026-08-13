@@ -13,7 +13,11 @@ const SPINNER_FRAMES = [
 ];
 const SPINNER_INTERVAL_MS = 100;
 
-const LoadingStatus = () => {
+interface Props {
+  message?: string;
+}
+
+const LoadingStatus = ({ message = "思考中……" }: Props) => {
   const [frameIndex, setFrameIndex] = useState(0);
   const frame = SPINNER_FRAMES[frameIndex]!;
 
@@ -28,7 +32,7 @@ const LoadingStatus = () => {
     <Box>
       <Text color={frame.color}>{frame.glyph} </Text>
       <Text color="gray" dimColor>
-        思考中……
+        {message}
       </Text>
     </Box>
   );

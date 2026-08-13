@@ -30,7 +30,7 @@ const App = ({ agentRunner }: AppProps) => {
   const { columns, rows } = useWindowSize();
   const footerRef = useRef<DOMElement | null>(null);
   const [footerHeight, setFooterHeight] = useState(FALLBACK_FOOTER_HEIGHT);
-  const { isExiting, requestExit } = useExit({ captureInput: configured !== true });
+  const { isExiting, exitStatusMessage, cancelExitConfirmation, requestExit } = useExit({ captureInput: configured !== true });
   const [inputHistory, setInputHistory] = useState<readonly string[]>([]);
   const {
     entries,
@@ -39,6 +39,7 @@ const App = ({ agentRunner }: AppProps) => {
     streamingReasoning,
     contextUsage,
     sendMessage,
+    interrupt,
     clearChat,
     appendSystemMessage,
   } = useChat({ agentRunner });
@@ -53,12 +54,10 @@ const App = ({ agentRunner }: AppProps) => {
   const screenHeight = rows || process.stdout.rows || 24;
   const inputColumns = getInputColumns(screenWidth);
   const maxVisibleInputLines = getMaxVisibleInputLines(screenHeight);
-  const transcriptHeight = Math.max(
-    1,
-    screenHeight - footerHeight,
-  );
+  const transcriptHeight = Math.max(1, screenHeight - footerHeight);
 
   const handleSubmit = (text: string) => {
+    cancelExitConfirmation();
     const commandText = text.trim();
     setInputHistory((previousHistory) =>
       appendInputHistory(previousHistory, text),
@@ -108,6 +107,8 @@ const App = ({ agentRunner }: AppProps) => {
     isTranscriptPinnedToBottom: transcriptController.isPinnedToBottom,
     wheelRows: transcriptController.wheelRows,
     requestExit,
+    cancelExitConfirmation,
+    interrupt,
     scroll: transcriptController.scroll,
     select: transcriptController.handleSelectEvent,
     handleInput: inputController.handleInput,
@@ -115,15 +116,13 @@ const App = ({ agentRunner }: AppProps) => {
   });
 
   if (configured === null) {
-    return (
-      <Box padding={1}>
-        <Text color="gray">正在检查配置……</Text>
-      </Box>
-    );
+    return <Box padding={1}><Text color="gray">正在检查配置……</Text></Box>;
   }
 
   if (!configured) {
-    return <SetupWizard onComplete={() => setConfigured(true)} isExiting={isExiting} />;
+    return (
+      <SetupWizard onComplete={() => setConfigured(true)} isExiting={isExiting} exitStatusMessage={exitStatusMessage} />
+    );
   }
 
   if (!config) {
@@ -146,6 +145,7 @@ const App = ({ agentRunner }: AppProps) => {
           inputColumns={inputColumns}
           maxVisibleLines={maxVisibleInputLines}
           disabled={isStreaming}
+          statusMessage={exitStatusMessage}
           isExiting={isExiting}
         />
 

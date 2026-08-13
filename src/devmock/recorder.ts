@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { runAgentLoop } from "../agent/loop.js";
 import type { AgentEvent } from "../agent/types.js";
+import type { AgentRunOptions } from "../ui/hooks/index.js";
 import type { RecordedEvent, SessionRecording } from "./types.js";
 
 const MOCKDATA_DIR = path.resolve(process.cwd(), "mockdata");
@@ -59,10 +60,11 @@ class SessionRecorder {
 export async function* recordAgentLoop(
   userMessage: string,
   outputPath: string,
+  options: AgentRunOptions = {},
 ): AsyncGenerator<AgentEvent> {
   const recorder = new SessionRecorder(userMessage, outputPath);
 
-  for await (const event of runAgentLoop(userMessage)) {
+  for await (const event of runAgentLoop(userMessage, options)) {
     recorder.record(event);
     yield event;
   }

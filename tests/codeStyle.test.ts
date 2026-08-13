@@ -33,7 +33,7 @@ interface MetricReadContext {
 
 const LEGACY_VIOLATIONS: Record<string, { lines: number; params: number }> = {
   ["src/ui/App.tsx:App#1"]: { lines: 129, params: 1 },
-  ["src/ui/SetupWizard.tsx:SetupWizard#1"]: { lines: 105, params: 1 },
+  ["src/ui/SetupWizard.tsx:SetupWizard#1"]: { lines: 103, params: 1 },
 };
 
 test("new functions stay within project size limits", () => {

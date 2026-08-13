@@ -1,4 +1,10 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useRef,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react";
 import { runAgentLoop } from "../../agent/loop.js";
 import { clearHistory } from "../../agent/history.js";
 import type { AgentEvent } from "../../agent/types.js";
@@ -36,7 +42,14 @@ export interface TextChatEntry {
 }
 
 export type ChatEntry = TextChatEntry | AssistantTurn;
-export type AgentRunner = (userMessage: string) => AsyncGenerator<AgentEvent>;
+export interface AgentRunOptions {
+  signal?: AbortSignal;
+}
+
+export type AgentRunner = (
+  userMessage: string,
+  options?: AgentRunOptions,
+) => AsyncGenerator<AgentEvent>;
 
 export interface UseChatOptions {
   agentRunner?: AgentRunner;
@@ -81,7 +94,23 @@ interface StreamRunInput {
   agentRunner: AgentRunner;
   append: (entry: ChatEntry) => void;
   setters: ChatStateSetters;
+  signal: AbortSignal;
+  run: ActiveRun;
 }
+
+interface ActiveRun {
+  id: number;
+  currentIdRef: MutableRefObject<number>;
+}
+
+interface ChatRuntimeRefs {
+  abortControllerRef: MutableRefObject<AbortController | null>;
+  activeRunIdRef: MutableRefObject<number>;
+  streamingReasoningRef: MutableRefObject<string>;
+  streamingAssistantTurnRef: MutableRefObject<AssistantTurn | null>;
+}
+
+const INTERRUPTED_MESSAGE = "对话已中断";
 
 export function useChat(options: UseChatOptions = {}) {
   const agentRunner = options.agentRunner ?? runAgentLoop;
@@ -92,13 +121,32 @@ export function useChat(options: UseChatOptions = {}) {
   const [contextUsage, setContextUsage] = useState<ContextUsageState>({
     status: "idle",
   });
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeRunIdRef = useRef(0);
+  const streamingReasoningRef = useRef(streamingReasoning);
+  const streamingAssistantTurnRef = useRef(streamingAssistantTurn);
 
   const append = (entry: ChatEntry) => {
     setEntries((prev) => [...prev, entry]);
   };
+  streamingReasoningRef.current = streamingReasoning;
+  streamingAssistantTurnRef.current = streamingAssistantTurn;
   const setters = { setIsStreaming, setStreamingReasoning, setStreamingAssistantTurn, setContextUsage };
+  const runtimeRefs = {
+    abortControllerRef,
+    activeRunIdRef,
+    streamingReasoningRef,
+    streamingAssistantTurnRef,
+  };
 
-  const sendMessage = createSendMessage({ agentRunner, append, setters, isStreaming });
+  const sendMessage = createSendMessage({
+    agentRunner,
+    append,
+    setters,
+    isStreaming,
+    runtimeRefs,
+  });
+  const interrupt = createInterrupt(runtimeRefs, setters, append);
   const clearChat = createClearChat(setEntries, setters);
   const appendSystemMessage = (content: string) => append(makeEntry("system", content));
 
@@ -109,6 +157,7 @@ export function useChat(options: UseChatOptions = {}) {
     streamingReasoning,
     contextUsage,
     sendMessage,
+    interrupt,
     clearChat,
     appendSystemMessage,
   };
@@ -119,11 +168,18 @@ function createSendMessage(input: {
   append: (entry: ChatEntry) => void;
   setters: ChatStateSetters;
   isStreaming: boolean;
+  runtimeRefs: ChatRuntimeRefs;
 }): (text: string) => Promise<void> {
   return async (text) => {
     if (input.isStreaming || !text.trim()) return;
-    startStreamingMessage(text, input.append, input.setters);
-    await runMessageStream(text, input);
+    const controller = startAgentRun(text, input);
+    await runMessageStream(text, {
+      agentRunner: input.agentRunner,
+      append: input.append,
+      setters: input.setters,
+      signal: controller.signal,
+      run: currentRun(input.runtimeRefs.activeRunIdRef),
+    });
   };
 }
 
@@ -134,9 +190,9 @@ async function runMessageStream(
   try {
     await consumeEvents({ text, ...input });
   } catch (err) {
-    appendSendError(err, input.append, input.setters);
+    if (isActiveRun(input.run)) appendSendError(err, input.append, input.setters);
   } finally {
-    finishStreamingMessage(input.setters);
+    if (isActiveRun(input.run)) finishStreamingMessage(input.setters);
   }
 }
 
@@ -145,10 +201,65 @@ async function consumeEvents(
 ): Promise<void> {
   const session = createEventSession();
   const handlers = createEventHandlers(input.append, input.setters);
-  for await (const event of input.agentRunner(input.text)) {
+  for await (const event of input.agentRunner(input.text, { signal: input.signal })) {
+    if (!isActiveRun(input.run)) return;
     consumeAgentEvent(event, session, handlers);
   }
 }
+
+function startAgentRun(
+  text: string,
+  input: Parameters<typeof createSendMessage>[0],
+): AbortController {
+  const controller = new AbortController();
+  input.runtimeRefs.activeRunIdRef.current += 1;
+  input.runtimeRefs.abortControllerRef.current = controller;
+  startStreamingMessage(text, input.append, input.setters);
+  return controller;
+}
+
+function createInterrupt(
+  refs: ChatRuntimeRefs,
+  setters: ChatStateSetters,
+  append: (entry: ChatEntry) => void,
+): () => void {
+  return () => {
+    const interruptedEntries = createInterruptedEntries(refs);
+    refs.abortControllerRef.current?.abort();
+    refs.abortControllerRef.current = null;
+    refs.activeRunIdRef.current += 1;
+    interruptedEntries.forEach(append);
+    finishStreamingMessage(setters);
+    setters.setContextUsage({ status: "idle" });
+  };
+}
+
+function createInterruptedEntries(refs: ChatRuntimeRefs): ChatEntry[] {
+  return [
+    ...createInterruptedThinkingEntries(refs.streamingReasoningRef.current),
+    ...createInterruptedAssistantEntries(refs.streamingAssistantTurnRef.current),
+    makeEntry("system", INTERRUPTED_MESSAGE),
+  ];
+}
+
+function createInterruptedThinkingEntries(reasoning: string): ChatEntry[] {
+  return reasoning ? [makeEntry("thinking", reasoning)] : [];
+}
+
+function createInterruptedAssistantEntries(turn: AssistantTurn | null): ChatEntry[] {
+  if (!turn || !hasAssistantTurnContent(turn)) return [];
+  return [finalizeAssistantTurn(turn, nextId(), "")];
+}
+
+const currentRun = (
+  activeRunIdRef: MutableRefObject<number>,
+): ActiveRun => ({
+  id: activeRunIdRef.current,
+  currentIdRef: activeRunIdRef,
+});
+
+const isActiveRun = (run: ActiveRun): boolean =>
+  run.id === run.currentIdRef.current;
 
 function createClearChat(
   setEntries: Dispatch<SetStateAction<ChatEntry[]>>,

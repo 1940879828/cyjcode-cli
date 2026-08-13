@@ -3,7 +3,13 @@ import type { ChatMessage, StreamEvent, TokenUsage, ToolCall } from "../llm/type
 import { getTool, toolsToOpenAI } from "../tools/index.js";
 import type { ToolResult } from "../tools/types.js";
 import { log } from "../utils/logger.js";
-import { addMessage, appendToolResult, getMessages } from "./history.js";
+import {
+  addMessage,
+  appendToolResult,
+  getHistoryLength,
+  getMessages,
+  truncateHistory,
+} from "./history.js";
 import { expandInitCommandMessages } from "./initCommand.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
@@ -45,30 +51,49 @@ interface StreamConsumeContext {
   response: TurnResponse;
 }
 
+interface AgentLoopOptions {
+  signal?: AbortSignal;
+}
+
 export async function* runAgentLoop(
   userMessage: string,
+  options: AgentLoopOptions = {},
 ): AsyncGenerator<AgentEvent> {
+  const historyStart = getHistoryLength();
   const context = startSession(userMessage);
 
+  try {
+    yield* runAgentSession(userMessage, context, options);
+  } finally {
+    if (options.signal?.aborted) truncateHistory(historyStart);
+  }
+}
+
+async function* runAgentSession(
+  userMessage: string,
+  context: SessionContext,
+  options: AgentLoopOptions,
+): AsyncGenerator<AgentEvent> {
   yield { type: "user_message", content: userMessage };
   addMessage({ role: "user", content: userMessage });
 
   for (let turn = 1; turn <= MAX_ROUNDS; turn++) {
-    const completed = yield* runAgentTurn(context, turn);
+    if (options.signal?.aborted) return;
+    const completed = yield* runAgentTurn(context, turn, options);
     if (completed) return;
   }
-
   yield* finishMaxRounds(context);
 }
 
 async function* runAgentTurn(
   context: SessionContext,
   turn: number,
+  options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, boolean> {
   yield { type: "turn_start", turn };
 
   try {
-    const response = yield* emitLlmTurn(context, turn);
+    const response = yield* emitLlmTurn(context, turn, options);
     return yield* handleTurnResponse(context, turn, response);
   } catch (error) {
     yield* finishWithError(context, turn, toErrorMessage(error));
@@ -106,18 +131,36 @@ function startSession(userMessage: string): SessionContext {
 async function* emitLlmTurn(
   context: SessionContext,
   turn: number,
+  options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, TurnResponse> {
   const messages = buildMessages(context.systemPrompt);
   log("llm.request", { sessionId: context.sessionId, turn, messageCount: messages.length });
 
   const response = createTurnResponse();
-  for await (const event of streamChat({ messages, tools: context.tools })) {
+  for await (const event of streamChat(createStreamChatOptions(context, messages, options))) {
+    throwIfAborted(options.signal);
     const forwarded = consumeStreamEvent(event, { session: context, turn, response });
     if (forwarded) yield forwarded;
   }
 
   logLlmResponse(context, turn, response);
   return response;
+}
+
+function createStreamChatOptions(
+  context: SessionContext,
+  messages: ChatMessage[],
+  options: AgentLoopOptions,
+): Parameters<typeof streamChat>[0] {
+  return {
+    messages,
+    tools: context.tools,
+    signal: options.signal,
+  };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new Error("已中断");
 }
 
 function buildMessages(systemPrompt: string): ChatMessage[] {

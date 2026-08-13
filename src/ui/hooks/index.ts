@@ -1,5 +1,6 @@
 export { useChat } from "./useChat.js";
 export type {
+  AgentRunOptions,
   AgentRunner,
   ChatEntry,
   TextChatEntry,

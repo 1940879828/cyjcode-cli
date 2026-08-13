@@ -13,10 +13,10 @@ export function createDevmockAgentRunner({
   mockPath,
 }: DevmockRunnerOptions): AgentRunner {
   if (mockPath) {
-    return (userMessage) => mockAgentLoop(userMessage, mockPath);
+    return (userMessage, options) => mockAgentLoop(userMessage, mockPath, options);
   }
   if (recordPath) {
-    return (userMessage) => recordAgentLoop(userMessage, recordPath);
+    return (userMessage, options) => recordAgentLoop(userMessage, recordPath, options);
   }
   return runAgentLoop;
 }

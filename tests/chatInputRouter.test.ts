@@ -150,10 +150,18 @@ test("keeps edit shortcuts for input while idle and transcript while streaming",
   );
 });
 
-test("ctrl+c has routing priority", () => {
+test("ctrl+c interrupts streaming before routing to exit while idle", () => {
   assert.deepEqual(
     routeChatInput("c", { ctrl: true, pageUp: true }, {
       isStreaming: true,
+      isTranscriptPinnedToBottom: true,
+      wheelRows: 5,
+    }),
+    { type: "interrupt" },
+  );
+  assert.deepEqual(
+    routeChatInput("c", { ctrl: true, pageUp: true }, {
+      isStreaming: false,
       isTranscriptPinnedToBottom: true,
       wheelRows: 5,
     }),

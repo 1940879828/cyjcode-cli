@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { Key } from "ink";
 import {
   createInputBoxState,
@@ -10,6 +11,7 @@ import {
 import type {
   InputBoxCommand,
   InputBoxEvent,
+  InputBoxLayout,
   InputBoxState,
   InputBoxView,
 } from "./inputBoxModel.js";
@@ -20,6 +22,34 @@ interface DeleteAccelerationState {
   key: DeleteKey | null;
   lastAt: number;
   repeats: number;
+}
+
+interface InputBoxRefs {
+  inputStateRef: MutableRefObject<InputBoxState>;
+  onSubmitRef: MutableRefObject<(text: string) => void>;
+  inputHistoryRef: MutableRefObject<readonly string[]>;
+  deleteAccelerationRef: MutableRefObject<DeleteAccelerationState>;
+}
+
+interface InputBoxRuntime {
+  refs: InputBoxRefs;
+  setInputState: Dispatch<SetStateAction<InputBoxState>>;
+  layout: InputBoxLayout;
+  isActive: boolean;
+}
+
+interface InputBoxDispatcher {
+  dispatchInputCommand: (command: InputBoxCommand) => void;
+  dispatchInputEvent: (event: InputBoxEvent) => void;
+  dispatchAcceleratedDelete: (input: string, key: Key) => boolean;
+  resetDeleteAcceleration: () => void;
+}
+
+interface AcceleratedDeleteInput {
+  runtime: InputBoxRuntime;
+  dispatchInputEvent: (event: InputBoxEvent) => void;
+  input: string;
+  key: Key;
 }
 
 const DELETE_REPEAT_WINDOW_MS = 90;
@@ -48,89 +78,129 @@ export const useInputBoxController = ({
   isExiting,
 }: UseInputBoxControllerOptions): InputBoxController => {
   const [inputState, setInputState] = useState<InputBoxState>(createInputBoxState);
-  const inputStateRef = useRef(inputState);
-  const onSubmitRef = useRef(onSubmit);
-  const inputHistoryRef = useRef(inputHistory);
-  const deleteAccelerationRef = useRef<DeleteAccelerationState>({
-    key: null,
-    lastAt: 0,
-    repeats: 0,
-  });
+  const refs = useInputBoxRefs(inputState, onSubmit, inputHistory);
   const isActive = !disabled && !isExiting;
   const layout = { inputColumns };
   const view = selectInputBoxView(inputState, layout, isActive);
+  const dispatcher = createInputBoxDispatcher({ refs, setInputState, layout, isActive });
 
-  onSubmitRef.current = onSubmit;
-  inputHistoryRef.current = inputHistory;
+  return createInputHandlers(view, dispatcher);
+};
 
-  const commitInputState = (nextState: InputBoxState) => {
-    if (nextState === inputStateRef.current) return;
-    inputStateRef.current = nextState;
-    setInputState(nextState);
+function useInputBoxRefs(
+  inputState: InputBoxState,
+  onSubmit: (text: string) => void,
+  inputHistory: readonly string[],
+): InputBoxRefs {
+  const refs = {
+    inputStateRef: useRef(inputState),
+    onSubmitRef: useRef(onSubmit),
+    inputHistoryRef: useRef(inputHistory),
+    deleteAccelerationRef: useRef(createDeleteAccelerationState()),
   };
+  refs.onSubmitRef.current = onSubmit;
+  refs.inputHistoryRef.current = inputHistory;
+  return refs;
+}
 
+function createInputBoxDispatcher(runtime: InputBoxRuntime): InputBoxDispatcher {
   const dispatchInputEvent = (event: InputBoxEvent) => {
-    if (!isActive) return;
-    const nextState = reduceInputBoxState(inputStateRef.current, event, {
-      layout,
-      inputHistory: inputHistoryRef.current,
-    });
-    commitInputState(nextState);
+    dispatchInputBoxEvent(runtime, event);
   };
-
-  const dispatchInputCommand = (command: InputBoxCommand) => {
-    if (!isActive) return;
-    if (command.type === "edit") {
-      dispatchInputEvent(command.event);
-      return;
-    }
-
-    const text = getSubmittableText(inputStateRef.current);
-    if (text === null) return;
-
-    commitInputState(createInputBoxState());
-    onSubmitRef.current(text);
+  return {
+    dispatchInputEvent,
+    dispatchInputCommand: (command) => dispatchInputBoxCommand(runtime, dispatchInputEvent, command),
+    dispatchAcceleratedDelete: (input, key) =>
+      dispatchAcceleratedDelete({ runtime, dispatchInputEvent, input, key }),
+    resetDeleteAcceleration: () => {
+      runtime.refs.deleteAccelerationRef.current = createDeleteAccelerationState();
+    },
   };
+}
 
-  const resetDeleteAcceleration = () => {
-    deleteAccelerationRef.current = { key: null, lastAt: 0, repeats: 0 };
+function createInputHandlers(
+  view: InputBoxView,
+  dispatcher: InputBoxDispatcher,
+): InputBoxController {
+  const handleInput = (input: string, key: Key) => {
+    if (key.eventType === "release") return dispatcher.resetDeleteAcceleration();
+    if (dispatcher.dispatchAcceleratedDelete(input, key)) return;
+    dispatcher.resetDeleteAcceleration();
+    dispatcher.dispatchInputCommand(resolveInputBoxCommand(input, key));
   };
-
-  const dispatchAcceleratedDelete = (input: string, key: Key): boolean => {
-    const deleteKey = getAcceleratableDeleteKey(key);
-    if (deleteKey === null) return false;
-
-    const eventCount = getDeleteEventCount(
-      deleteAccelerationRef.current,
-      deleteKey,
-      Date.now(),
-    );
-    const command = resolveInputBoxCommand(input, key);
-    if (command.type !== "edit") return false;
-
-    for (let eventIndex = 0; eventIndex < eventCount; eventIndex += 1) {
-      dispatchInputEvent(command.event);
-    }
-    return true;
-  };
-
   return {
     view,
-    handleInput: (input, key) => {
-      if (key.eventType === "release") {
-        resetDeleteAcceleration();
-        return;
-      }
-      if (dispatchAcceleratedDelete(input, key)) return;
-      resetDeleteAcceleration();
-      dispatchInputCommand(resolveInputBoxCommand(input, key));
-    },
+    handleInput,
     handlePaste: (text) => {
-      resetDeleteAcceleration();
-      dispatchInputEvent({ type: "insertText", text });
+      dispatcher.resetDeleteAcceleration();
+      dispatcher.dispatchInputEvent({ type: "insertText", text });
     },
   };
-};
+}
+
+function dispatchInputBoxEvent(runtime: InputBoxRuntime, event: InputBoxEvent): void {
+  if (!runtime.isActive) return;
+  const nextState = reduceInputBoxState(runtime.refs.inputStateRef.current, event, {
+    layout: runtime.layout,
+    inputHistory: runtime.refs.inputHistoryRef.current,
+  });
+  commitInputState(runtime, nextState);
+}
+
+function dispatchInputBoxCommand(
+  runtime: InputBoxRuntime,
+  dispatchInputEvent: (event: InputBoxEvent) => void,
+  command: InputBoxCommand,
+): void {
+  if (!runtime.isActive) return;
+  if (command.type === "edit") return dispatchInputEvent(command.event);
+  submitInputState(runtime);
+}
+
+function submitInputState(runtime: InputBoxRuntime): void {
+  const text = getSubmittableText(runtime.refs.inputStateRef.current);
+  if (text === null) return;
+  commitInputState(runtime, createInputBoxState());
+  runtime.refs.onSubmitRef.current(text);
+}
+
+function commitInputState(runtime: InputBoxRuntime, nextState: InputBoxState): void {
+  if (nextState === runtime.refs.inputStateRef.current) return;
+  runtime.refs.inputStateRef.current = nextState;
+  runtime.setInputState(nextState);
+}
+
+function dispatchAcceleratedDelete(input: AcceleratedDeleteInput): boolean {
+  const deleteKey = getAcceleratableDeleteKey(input.key);
+  if (deleteKey === null) return false;
+
+  const eventCount = getDeleteEventCount(
+    input.runtime.refs.deleteAccelerationRef.current,
+    deleteKey,
+    Date.now(),
+  );
+  const command = resolveInputBoxCommand(input.input, input.key);
+  if (command.type !== "edit") return false;
+
+  repeatInputEvent(input.dispatchInputEvent, command.event, eventCount);
+  return true;
+}
+
+function repeatInputEvent(
+  dispatchInputEvent: (event: InputBoxEvent) => void,
+  event: InputBoxEvent,
+  eventCount: number,
+): void {
+  for (let eventIndex = 0; eventIndex < eventCount; eventIndex += 1) {
+    dispatchInputEvent(event);
+  }
+}
+
+const createDeleteAccelerationState = (): DeleteAccelerationState => ({
+  key: null,
+  lastAt: 0,
+  repeats: 0,
+});
 
 const getAcceleratableDeleteKey = (key: Key): DeleteKey | null => {
   if (key.ctrl || key.meta) return null;

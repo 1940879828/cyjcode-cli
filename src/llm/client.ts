@@ -25,7 +25,10 @@ type Delta = ChatChunk["choices"][number]["delta"];
 type DeltaToolCall = NonNullable<Delta["tool_calls"]>[number];
 
 interface StreamingCompletions {
-  create(params: StreamingParams): Promise<AsyncIterable<ChatChunk>>;
+  create(
+    params: StreamingParams,
+    options?: { signal?: AbortSignal },
+  ): Promise<AsyncIterable<ChatChunk>>;
 }
 
 interface ToolCallAccumulator {
@@ -103,7 +106,10 @@ async function createChatStream(
 ): Promise<AsyncIterable<ChatChunk>> {
   const client = buildClient();
   const completions = client.chat.completions as unknown as StreamingCompletions;
-  return completions.create(buildStreamingParams(options));
+  return completions.create(
+    buildStreamingParams(options),
+    options.signal ? { signal: options.signal } : undefined,
+  );
 }
 
 function buildStreamingParams(options: StreamChatOptions): StreamingParams {
