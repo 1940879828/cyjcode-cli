@@ -1,251 +1,207 @@
-import { useState, useEffect, useLayoutEffect, useRef } from "react";
-import type { Dispatch, SetStateAction } from "react";
-import { Box, Text, measureElement, useWindowSize } from "ink";
-import type { DOMElement } from "ink";
-import { hasConfig, getConfig } from "../config/store.js";
+import { useState } from "react";
+import { Box, Text } from "ink";
+import { getConfig } from "../config/store.js";
 import type { AppConfig } from "../config/store.js";
 import { getPackageVersion } from "../config/version.js";
 import { useChat, useChatInputRouter, useExit } from "./hooks/index.js";
 import type { AgentRunner } from "./hooks/index.js";
-import InputBox, {
-  getInputColumns,
-  getMaxVisibleInputLines,
-} from "./components/InputBox/index.js";
+import InputBox from "./components/InputBox/index.js";
 import TranscriptViewport, { useTranscriptViewportController } from "./components/TranscriptViewport/index.js";
 import { useInputBoxController } from "./components/InputBox/useInputBoxController.js";
 import { appendInputHistory } from "./components/InputBox/inputBoxModel.js";
-import { selectContextUsageView } from "./contextUsage.js";
-import type { ContextUsageView } from "./contextUsage.js";
-import { parseSlashInput } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
-
-const FALLBACK_FOOTER_HEIGHT = 4;
+import { useAppLayout } from "./appLayout.js";
+import { useConfigurationState } from "./configurationState.js";
+import { ContextUsageFooter } from "./ContextUsageFooter.js";
+import { handleSlashCommand } from "./slashCommandRunner.js";
 
 interface AppProps {
   agentRunner?: AgentRunner;
 }
 
 const App = ({ agentRunner }: AppProps) => {
-  const [configured, setConfigured] = useConfigurationState();
-  const { columns, rows } = useWindowSize();
-  const footerRef = useRef<DOMElement | null>(null);
-  const [footerHeight, setFooterHeight] = useState(FALLBACK_FOOTER_HEIGHT);
-  const { isExiting, exitStatusMessage, cancelExitConfirmation, requestExit } = useExit({ captureInput: configured !== true });
-  const [inputHistory, setInputHistory] = useState<readonly string[]>([]);
-  const {
-    entries,
-    isStreaming,
-    streamingAssistantTurn,
-    streamingReasoning,
-    contextUsage,
-    sendMessage,
-    interrupt,
-    clearChat,
-    appendSystemMessage,
-  } = useChat({ agentRunner });
-
-  useLayoutEffect(() => {
-    if (footerRef.current) {
-      setFooterHeight(measureElement(footerRef.current).height);
-    }
-  });
-
-  const screenWidth = columns || process.stdout.columns || 80;
-  const screenHeight = rows || process.stdout.rows || 24;
-  const inputColumns = getInputColumns(screenWidth);
-  const maxVisibleInputLines = getMaxVisibleInputLines(screenHeight);
-  const transcriptHeight = Math.max(1, screenHeight - footerHeight);
-
-  const handleSubmit = (text: string) => {
-    cancelExitConfirmation();
-    const commandText = text.trim();
-    setInputHistory((previousHistory) =>
-      appendInputHistory(previousHistory, text),
-    );
-
-    if (commandText.startsWith("/")) {
-      handleSlashCommand(commandText, {
-        appendSystemMessage,
-        clearChat,
-        sendMessage,
-        startSetup: () => setConfigured(false),
-      });
-      return;
-    }
-    sendMessage(text).then();
-  };
-
-  const inputController = useInputBoxController({
-    onSubmit: handleSubmit,
-    inputHistory,
-    inputColumns,
-    disabled: configured !== true || isStreaming,
-    isExiting,
-  });
-  const config = configured === true ? getConfig() : null;
-  const transcriptController = useTranscriptViewportController({
-    header: config
-      ? {
-          version: getPackageVersion(),
-          model: config.model,
-          thinking: config.thinking,
-          reasoningEffort: config.reasoningEffort,
-          path: process.cwd(),
-        }
-      : undefined,
-    entries,
-    streamingReasoning: isStreaming ? streamingReasoning : "",
-    streamingAssistantTurn: isStreaming ? streamingAssistantTurn : null,
-    width: screenWidth,
-    height: transcriptHeight,
-  });
-
-  useChatInputRouter({
-    enabled: configured === true && !isExiting,
-    mouseTrackingEnabled: configured === true && !isExiting,
-    isStreaming,
-    isTranscriptPinnedToBottom: transcriptController.isPinnedToBottom,
-    wheelRows: transcriptController.wheelRows,
-    requestExit,
-    cancelExitConfirmation,
-    interrupt,
-    scroll: transcriptController.scroll,
-    select: transcriptController.handleSelectEvent,
-    handleInput: inputController.handleInput,
-    handlePaste: inputController.handlePaste,
-  });
-
-  if (configured === null) {
-    return <Box padding={1}><Text color="gray">正在检查配置……</Text></Box>;
-  }
-
-  if (!configured) {
-    return (
-      <SetupWizard onComplete={() => setConfigured(true)} isExiting={isExiting} exitStatusMessage={exitStatusMessage} />
-    );
-  }
-
-  if (!config) {
-    return null;
-  }
-
-  return (
-    <Box flexDirection="column" width={screenWidth} height={screenHeight}>
-      <TranscriptViewport
-        height={transcriptController.height}
-        visibleRows={transcriptController.visibleRows}
-        showScrollHint={transcriptController.showScrollHint}
-        selectionRanges={transcriptController.selectionRanges}
-      />
-
-      <Box ref={footerRef} flexDirection="column">
-        <InputBox
-          view={inputController.view}
-          screenWidth={screenWidth}
-          inputColumns={inputColumns}
-          maxVisibleLines={maxVisibleInputLines}
-          disabled={isStreaming}
-          statusMessage={exitStatusMessage}
-          isExiting={isExiting}
-        />
-
-        <ContextUsageFooter config={config} contextUsage={contextUsage} />
-      </Box>
-    </Box>
-  );
+  const runtime = useAppRuntime(agentRunner);
+  return <AppContent runtime={runtime} />;
 };
 
-function useConfigurationState(): [
-  boolean | null,
-  Dispatch<SetStateAction<boolean | null>>,
-] {
-  const [configured, setConfigured] = useState<boolean | null>(null);
-  useEffect(() => {
-    setConfigured(hasConfig());
-  }, []);
-  return [configured, setConfigured];
+interface AppRuntime {
+  configured: boolean | null;
+  completeSetup: () => void;
+  config: AppConfig | null;
+  layout: ReturnType<typeof useAppLayout>;
+  isExiting: boolean;
+  exitStatusMessage: string | null;
+  isStreaming: boolean;
+  contextUsage: ReturnType<typeof useChat>["contextUsage"];
+  inputController: ReturnType<typeof useInputBoxController>;
+  transcriptController: ReturnType<typeof useTranscriptViewportController>;
 }
 
-interface SlashCommandHandlers {
+type ChatRuntime = ReturnType<typeof useChat>;
+type ExitRuntime = ReturnType<typeof useExit>;
+
+interface SubmitHandlerInput {
+  cancelExitConfirmation: () => void;
   appendSystemMessage: (content: string) => void;
   clearChat: () => void;
   sendMessage: (text: string) => Promise<void>;
   startSetup: () => void;
 }
 
-function handleSlashCommand(
-  commandText: string,
-  handlers: SlashCommandHandlers,
-): void {
-  const parsed = parseSlashInput(commandText);
-  if (!parsed) {
-    handlers.appendSystemMessage(`未知命令: ${commandText}\n输入 /help 查看可用命令`);
-    return;
-  }
+function useAppRuntime(agentRunner: AgentRunner | undefined): AppRuntime {
+  const [configured, setConfigured] = useConfigurationState();
+  const layout = useAppLayout();
+  const exit = useExit({ captureInput: configured !== true });
+  const chat = useChat({ agentRunner });
+  const submission = useSubmitHandler({
+    cancelExitConfirmation: exit.cancelExitConfirmation,
+    appendSystemMessage: chat.appendSystemMessage,
+    clearChat: chat.clearChat,
+    sendMessage: chat.sendMessage,
+    startSetup: () => setConfigured(false),
+  });
 
-  if (parsed.command.execution === "agent") {
-    void handlers.sendMessage(parsed.command.name);
-    return;
-  }
+  const inputController = useInputBoxController({
+    onSubmit: submission.handleSubmit,
+    inputHistory: submission.inputHistory,
+    inputColumns: layout.inputColumns,
+    disabled: configured !== true || chat.isStreaming,
+    isExiting: exit.isExiting,
+  });
+  const config = configured === true ? getConfig() : null;
+  const transcriptController = useAppTranscriptController({ config, chat, layout });
+  useAppInputRouter({ configured, exit, chat, inputController, transcriptController });
 
-  handlers.appendSystemMessage(parsed.command.handler(parsed.args, {
-    clearChat: handlers.clearChat,
-    startSetup: handlers.startSetup,
-  }));
+  return {
+    configured,
+    completeSetup: () => setConfigured(true),
+    config,
+    layout,
+    isExiting: exit.isExiting,
+    exitStatusMessage: exit.exitStatusMessage,
+    isStreaming: chat.isStreaming,
+    contextUsage: chat.contextUsage,
+    inputController,
+    transcriptController,
+  };
 }
 
-function ContextUsageFooter({
+function useSubmitHandler(input: SubmitHandlerInput): {
+  inputHistory: readonly string[];
+  handleSubmit: (text: string) => void;
+} {
+  const [inputHistory, setInputHistory] = useState<readonly string[]>([]);
+  const handleSubmit = (text: string) => {
+    input.cancelExitConfirmation();
+    setInputHistory((previousHistory) => appendInputHistory(previousHistory, text));
+    submitText(text, input);
+  };
+  return { inputHistory, handleSubmit };
+}
+
+function submitText(text: string, handlers: SubmitHandlerInput): void {
+  const commandText = text.trim();
+  if (commandText.startsWith("/")) {
+    handleSlashCommand(commandText, handlers);
+    return;
+  }
+  handlers.sendMessage(text).then();
+}
+
+function useAppTranscriptController({
   config,
-  contextUsage,
+  chat,
+  layout,
 }: {
-  config: AppConfig;
-  contextUsage: Parameters<typeof selectContextUsageView>[0];
-}) {
-  const contextUsageView = selectContextUsageView(contextUsage, config.model);
-  return (
-    <Box paddingX={1} height={1}>
-      <Text>{config.model}</Text>
-      {config.thinking ? (
-        <>
-          <FooterSeparator />
-          <Text>Thinking ON</Text>
-          <FooterSeparator />
-          <Text>{`Effort:${config.reasoningEffort}`}</Text>
-        </>
-      ) : null}
-      <FooterSeparator />
-      <ContextUsageIndicator view={contextUsageView} />
-    </Box>
-  );
+  config: AppConfig | null;
+  chat: ChatRuntime;
+  layout: ReturnType<typeof useAppLayout>;
+}): ReturnType<typeof useTranscriptViewportController> {
+  return useTranscriptViewportController({
+    header: config ? buildTranscriptHeader(config) : undefined,
+    entries: chat.entries,
+    streamingReasoning: chat.isStreaming ? chat.streamingReasoning : "",
+    streamingAssistantTurn: chat.isStreaming ? chat.streamingAssistantTurn : null,
+    width: layout.screenWidth,
+    height: layout.transcriptHeight,
+  });
 }
 
-function FooterSeparator() {
-  return (
-    <Text color="gray" >
-      {" | "}
-    </Text>
-  );
+function buildTranscriptHeader(config: AppConfig) {
+  return {
+    version: getPackageVersion(),
+    model: config.model,
+    thinking: config.thinking,
+    reasoningEffort: config.reasoningEffort,
+    path: process.cwd(),
+  };
 }
 
-function ContextUsageIndicator({ view }: { view: ContextUsageView }) {
-  if (view.bar) {
-    return <ContextUsageBar view={view} />;
+function useAppInputRouter(input: {
+  configured: boolean | null;
+  exit: ExitRuntime;
+  chat: ChatRuntime;
+  inputController: ReturnType<typeof useInputBoxController>;
+  transcriptController: ReturnType<typeof useTranscriptViewportController>;
+}): void {
+  useChatInputRouter({
+    enabled: input.configured === true && !input.exit.isExiting,
+    mouseTrackingEnabled: input.configured === true && !input.exit.isExiting,
+    isStreaming: input.chat.isStreaming,
+    isTranscriptPinnedToBottom: input.transcriptController.isPinnedToBottom,
+    wheelRows: input.transcriptController.wheelRows,
+    requestExit: input.exit.requestExit,
+    cancelExitConfirmation: input.exit.cancelExitConfirmation,
+    interrupt: input.chat.interrupt,
+    scroll: input.transcriptController.scroll,
+    select: input.transcriptController.handleSelectEvent,
+    handleInput: input.inputController.handleInput,
+    handlePaste: input.inputController.handlePaste,
+  });
+}
+
+function AppContent({ runtime }: { runtime: AppRuntime }) {
+  if (runtime.configured === null) {
+    return <Box padding={1}><Text color="gray">正在检查配置……</Text></Box>;
   }
-  return (
-    <Text color={view.color} dimColor={view.color === "gray"}>
-      {view.text}
-    </Text>
-  );
-}
 
-function ContextUsageBar({ view }: { view: ContextUsageView }) {
-  if (!view.bar) return null;
+  if (!runtime.configured) {
+    return (
+      <SetupWizard
+        onComplete={runtime.completeSetup}
+        isExiting={runtime.isExiting}
+        exitStatusMessage={runtime.exitStatusMessage}
+      />
+    );
+  }
+
+  if (!runtime.config) {
+    return null;
+  }
+
   return (
-    <>
-      <Text backgroundColor={view.bar.usedBackgroundColor}>{view.bar.used}</Text>
-      <Text backgroundColor={view.bar.unusedBackgroundColor}>{view.bar.unused}</Text>
-      <Text color="gray" dimColor>{` ${view.bar.suffix}`}</Text>
-    </>
+    <Box flexDirection="column" width={runtime.layout.screenWidth} height={runtime.layout.screenHeight}>
+      <TranscriptViewport
+        height={runtime.transcriptController.height}
+        visibleRows={runtime.transcriptController.visibleRows}
+        showScrollHint={runtime.transcriptController.showScrollHint}
+        selectionRanges={runtime.transcriptController.selectionRanges}
+      />
+
+      <Box ref={runtime.layout.footerRef} flexDirection="column">
+        <InputBox
+          view={runtime.inputController.view}
+          screenWidth={runtime.layout.screenWidth}
+          inputColumns={runtime.layout.inputColumns}
+          maxVisibleLines={runtime.layout.maxVisibleInputLines}
+          disabled={runtime.isStreaming}
+          statusMessage={runtime.exitStatusMessage}
+          isExiting={runtime.isExiting}
+        />
+
+        <ContextUsageFooter config={runtime.config} contextUsage={runtime.contextUsage} />
+      </Box>
+    </Box>
   );
 }
 
