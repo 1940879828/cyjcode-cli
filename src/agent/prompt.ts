@@ -11,7 +11,7 @@ const BEHAVIOR_RULES = [
   "不要访问工作目录之外的文件",
 ];
 
-export function buildSystemPrompt(): string {
+export function buildSystemPrompt(workspaceRoot = process.cwd()): string {
   const toolDescriptions = allTools
     .map((t) => `- ${t.name}: ${t.description}`)
     .join("\n");
@@ -19,7 +19,7 @@ export function buildSystemPrompt(): string {
 
   return `你是一个终端编程助手 (tigacode-cli)，运行在用户的本地环境中。
 
-当前工作目录: ${process.cwd()}
+当前工作目录: ${workspaceRoot}
 
 你可以使用以下工具来帮助用户完成文件操作和代码搜索:
 ${toolDescriptions}

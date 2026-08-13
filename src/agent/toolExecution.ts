@@ -2,33 +2,36 @@ import type { ToolCall } from "../llm/types.js";
 import { getTool } from "../tools/index.js";
 import type { ToolResult } from "../tools/types.js";
 import { log } from "../utils/logger.js";
-import { appendToolResult } from "./history.js";
 import type { AgentEvent } from "./types.js";
 import { toErrorMessage } from "./errors.js";
+import type { AgentHistoryStore } from "./runtime.js";
 
 interface ToolExecutionContext {
   sessionId: string;
   turn: number;
   toolCall: ToolCall;
   args: Record<string, unknown>;
+  history: AgentHistoryStore;
 }
 
 export async function* executeToolCalls({
   sessionId,
   turn,
   toolCalls,
+  history,
 }: {
   sessionId: string;
   turn: number;
   toolCalls: ToolCall[];
+  history: AgentHistoryStore;
 }): AsyncGenerator<AgentEvent> {
   for (const toolCall of toolCalls) {
     const parsedArgs = parseToolArgs(toolCall.function.arguments);
     if (!parsedArgs) {
-      yield* emitToolParseError(sessionId, turn, toolCall);
+      yield* emitToolParseError({ sessionId, turn, toolCall, args: {}, history });
       continue;
     }
-    yield* emitToolExecution({ sessionId, turn, toolCall, args: parsedArgs });
+    yield* emitToolExecution({ sessionId, turn, toolCall, args: parsedArgs, history });
   }
 }
 
@@ -46,7 +49,7 @@ async function* emitToolExecution(input: ToolExecutionContext): AsyncGenerator<A
 
   yield { type: "tool_call", callId: toolCall.id, name: toolCall.function.name, arguments: args };
   yield { type: "tool_result", callId: toolCall.id, name: toolCall.function.name, result };
-  appendToolResult(toolCall.id, toolCall.function.name, formatToolResultForModel(result));
+  rememberToolResult(input, formatToolResultForModel(result));
 }
 
 async function runTool(
@@ -60,13 +63,11 @@ async function runTool(
   }
 }
 
-function* emitToolParseError(
-  sessionId: string,
-  turn: number,
-  toolCall: ToolCall,
-): Generator<AgentEvent> {
-  const errorMessage = `工具参数 JSON 解析失败: ${toolCall.function.arguments}`;
-  yield* emitToolFailure({ sessionId, turn, toolCall, args: {}, errorMessage });
+function* emitToolParseError(input: ToolExecutionContext): Generator<AgentEvent> {
+  yield* emitToolFailure({
+    ...input,
+    errorMessage: `工具参数 JSON 解析失败: ${input.toolCall.function.arguments}`,
+  });
 }
 
 function* emitToolFailure(
@@ -81,7 +82,16 @@ function* emitToolFailure(
     name: input.toolCall.function.name,
     result: { success: false, error: input.errorMessage },
   };
-  appendToolResult(input.toolCall.id, input.toolCall.function.name, `错误: ${input.errorMessage}`);
+  rememberToolResult(input, `错误: ${input.errorMessage}`);
+}
+
+function rememberToolResult(input: ToolExecutionContext, content: string): void {
+  input.history.addMessage({
+    role: "tool",
+    content,
+    tool_call_id: input.toolCall.id,
+    name: input.toolCall.function.name,
+  });
 }
 
 function logToolStart(input: ToolExecutionContext): void {
