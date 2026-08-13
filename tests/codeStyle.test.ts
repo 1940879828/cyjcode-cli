@@ -31,9 +31,7 @@ interface MetricReadContext {
   metrics: FunctionMetric[];
 }
 
-const LEGACY_VIOLATIONS: Record<string, { lines: number; params: number }> = {
-  ["src/ui/SetupWizard.tsx:SetupWizard#1"]: { lines: 103, params: 1 },
-};
+const LEGACY_VIOLATIONS: Record<string, { lines: number; params: number }> = {};
 
 test("new functions stay within project size limits", () => {
   const metrics = collectFunctionMetrics("src");
