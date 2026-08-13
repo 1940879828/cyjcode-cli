@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import type { AssistantTurn } from "../../assistantTurn.js";
 import type { ChatEntry } from "../../hooks/index.js";
-import type { BuildTranscriptRowsInput, TranscriptHeader, TranscriptRow } from "../../transcriptRows.js";
-import { buildCachedTranscriptRows, createTranscriptRowsCache } from "../../transcriptRowsCache.js";
+import type { BuildTranscriptRowsInput, TranscriptHeader, TranscriptRow } from "./transcriptRows.js";
+import { buildCachedTranscriptRows, createTranscriptRowsCache } from "./transcriptRowsCache.js";
 import {
   createTranscriptScrollState,
   getMaxOffset,
@@ -13,7 +13,7 @@ import {
   selectVisibleTranscriptRows,
   type TranscriptScrollAction,
   type TranscriptScrollState,
-} from "../../transcriptScroll.js";
+} from "./transcriptScroll.js";
 
 const MAX_TRANSCRIPT_ROWS = 2000;
 const MIN_VIEWPORT_HEIGHT = 1;

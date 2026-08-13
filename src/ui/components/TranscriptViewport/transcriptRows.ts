@@ -1,6 +1,7 @@
 import stringWidth from "string-width";
-import type { AssistantTurn, AssistantTurnPartKind } from "./assistantTurn.js";
-import type { ChatEntry, TextChatEntry } from "./hooks/index.js";
+import type { AssistantTurn, AssistantTurnPartKind } from "../../assistantTurn.js";
+import type { ChatEntry, TextChatEntry } from "../../hooks/index.js";
+import { TIGA_ART } from "./headerArt.js";
 
 export type TranscriptRowKind =
   | "header"
@@ -163,6 +164,7 @@ const buildHeaderRows = (
   header: TranscriptHeader,
   innerWidth: number,
 ): Array<Omit<TranscriptRow, "id">> => [
+    ...createHeaderArtRows(),
     createHeaderRow(`╭${"─".repeat(innerWidth)}╮`),
     createHeaderTitleRow(innerWidth, header.version),
     createHeaderRow(`│${" ".repeat(innerWidth)}│`),
@@ -182,6 +184,9 @@ const createHeaderRow = (
   segments: segments ?? [{ text, color: BORDER_COLOR }],
   ...ROLE_STYLES.header,
 });
+
+const createHeaderArtRows = (): Array<Omit<TranscriptRow, "id">> =>
+  TIGA_ART.split("\n").map((line) => createHeaderRow(line));
 
 const createHeaderTitleRow = (
   innerWidth: number,

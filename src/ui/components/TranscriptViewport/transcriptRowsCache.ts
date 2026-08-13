@@ -1,4 +1,4 @@
-import type { ChatEntry } from "./hooks/index.js";
+import type { ChatEntry } from "../../hooks/index.js";
 import {
   buildTranscriptEntryRows,
   buildTranscriptHeaderRows,

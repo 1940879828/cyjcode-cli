@@ -1,7 +1,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { useInput, usePaste } from "ink";
 import type { Key } from "ink";
-import type { TranscriptScrollAction } from "../transcriptScroll.js";
+import type { TranscriptScrollAction } from "../components/TranscriptViewport/transcriptScroll.js";
 
 const ENABLE_SGR_MOUSE = "\u001b[?1000h\u001b[?1006h";
 const DISABLE_SGR_MOUSE = "\u001b[?1000l\u001b[?1006l";
