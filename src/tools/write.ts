@@ -1,34 +1,30 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Tool, ToolResult } from "./types.js";
+import { z } from "zod";
+import { defineTool } from "./defineTool.js";
+import type { ToolResult } from "./types.js";
 import { resolveInsideWorkspace } from "./workspacePath.js";
 
-const write: Tool = {
+const writeArgsSchema = z.object({
+  filePath: z.string().min(1, "filePath 参数不能为空")
+    .describe("要写入的文件路径，相对于当前工作目录"),
+  content: z.string({
+    error: (issue) => issue.input === undefined || issue.input === null
+      ? "content 参数不能为空"
+      : "content 参数必须是字符串",
+  }).describe("要写入的文件内容"),
+});
+
+const write = defineTool({
   name: "write",
   description:
     "将内容写入（创建或覆盖）指定文件。仅在当前工作目录下允许写入。",
-  parameters: {
-    type: "object",
-    properties: {
-      filePath: {
-        type: "string",
-        description: "要写入的文件路径，相对于当前工作目录",
-      },
-      content: {
-        type: "string",
-        description: "要写入的文件内容",
-      },
-    },
-    required: ["filePath", "content"],
-  },
-
-  execute(args: Record<string, unknown>): ToolResult {
-    const parsed = parseWriteArgs(args);
-
-    if (!parsed.success) return { success: false, error: parsed.error };
-
+  schema: writeArgsSchema,
+  execute(args): ToolResult {
+    const resolved = resolveInsideWorkspace(args.filePath);
+    if (!resolved.success) return { success: false, error: resolved.error };
     try {
-      return writeFile(parsed.value);
+      return writeFile({ ...args, resolvedPath: resolved.path });
     } catch (error) {
       return {
         success: false,
@@ -36,42 +32,12 @@ const write: Tool = {
       };
     }
   },
-};
+});
 
 interface WriteArgs {
   filePath: string;
   content: string;
   resolvedPath: string;
-}
-
-function parseWriteArgs(
-  args: Record<string, unknown>,
-): { success: true; value: WriteArgs } | { success: false; error: string } {
-  const filePath = typeof args.filePath === "string" ? args.filePath : "";
-
-  if (!filePath) return { success: false, error: "filePath 参数不能为空" };
-  const content = parseWriteContent(args.content);
-  if (!content.success) return content;
-
-  const resolved = resolveInsideWorkspace(filePath);
-  if (!resolved.success) return resolved;
-
-  return {
-    success: true,
-    value: { filePath, content: content.value, resolvedPath: resolved.path },
-  };
-}
-
-function parseWriteContent(
-  content: unknown,
-): { success: true; value: string } | { success: false; error: string } {
-  if (content === undefined || content === null) {
-    return { success: false, error: "content 参数不能为空" };
-  }
-  if (typeof content !== "string") {
-    return { success: false, error: "content 参数必须是字符串" };
-  }
-  return { success: true, value: content };
 }
 
 function writeFile(args: WriteArgs): ToolResult {

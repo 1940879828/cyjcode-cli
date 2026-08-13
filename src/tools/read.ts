@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { z } from "zod";
 import {
   createSnippet,
   formatWithLineNumbers,
@@ -6,48 +7,36 @@ import {
   rememberFileSnapshot,
   splitLines,
 } from "./fileState.js";
-import type { Tool, ToolResult } from "./types.js";
+import { defineTool } from "./defineTool.js";
+import type { ToolResult } from "./types.js";
 import { resolveInsideWorkspace } from "./workspacePath.js";
 
-const read: Tool = {
+const optionalNumber = () => z.preprocess(
+  (value) => (typeof value === "number" ? value : undefined),
+  z.number().optional(),
+);
+
+const readArgsSchema = z.object({
+  filePath: z.string().min(1, "filePath 参数不能为空")
+    .describe("要读取的文件路径，相对于当前工作目录"),
+  offset: optionalNumber().describe("从第几行开始读取（从 1 开始）。不指定则从开头读取"),
+  limit: optionalNumber().describe("最多读取多少行。不指定则读取全部"),
+});
+
+const read = defineTool({
   name: "read",
   description:
     "读取指定文件的内容。支持指定偏移量和行数限制来读取文件的部分内容。",
-  parameters: {
-    type: "object",
-    properties: {
-      filePath: {
-        type: "string",
-        description: "要读取的文件路径，相对于当前工作目录",
-      },
-      offset: {
-        type: "number",
-        description: "从第几行开始读取（从 1 开始）。不指定则从开头读取",
-      },
-      limit: {
-        type: "number",
-        description: "最多读取多少行。不指定则读取全部",
-      },
-    },
-    required: ["filePath"],
-  },
-
-  execute(args: Record<string, unknown>): ToolResult {
-    const parsed = parseReadArgs(args);
-    if (!parsed.success) return { success: false, error: parsed.error };
-
-    const resolved = resolveInsideWorkspace(parsed.value.filePath);
+  schema: readArgsSchema,
+  execute(args): ToolResult {
+    const resolved = resolveInsideWorkspace(args.filePath);
     if (!resolved.success) return { success: false, error: resolved.error };
 
-    return readFile(parsed.value, resolved.path);
+    return readFile(args, resolved.path);
   },
-};
+});
 
-interface ReadArgs {
-  filePath: string;
-  offset?: number;
-  limit?: number;
-}
+type ReadArgs = z.infer<typeof readArgsSchema>;
 
 interface ReadRange {
   startLine: number;
@@ -59,22 +48,6 @@ interface ReadSnippetInput {
   metadata: ReturnType<typeof readTextFileMetadata>;
   range: ReadRange;
   lines: string[];
-}
-
-function parseReadArgs(
-  args: Record<string, unknown>,
-): { success: true; value: ReadArgs } | { success: false; error: string } {
-  const filePath = typeof args.filePath === "string" ? args.filePath : "";
-  if (!filePath) return { success: false, error: "filePath 参数不能为空" };
-
-  return {
-    success: true,
-    value: {
-      filePath,
-      offset: typeof args.offset === "number" ? args.offset : undefined,
-      limit: typeof args.limit === "number" ? args.limit : undefined,
-    },
-  };
 }
 
 function readFile(args: ReadArgs, resolvedPath: string): ToolResult {
