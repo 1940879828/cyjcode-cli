@@ -7,6 +7,9 @@ import type { InputBoxView } from "./inputBoxModel.js";
 const PROMPT = "❯ ";
 // 输入框提示符的宽度（以"column"为单位）
 const PROMPT_WIDTH = stringWidth(PROMPT);
+const MIN_VISIBLE_INPUT_LINES = 4;
+const MAX_VISIBLE_INPUT_LINES = 16;
+const VISIBLE_INPUT_HEIGHT_RATIO = 0.35;
 
 interface Props {
   view: InputBoxView;
@@ -24,7 +27,11 @@ export const getInputColumns = (screenWidth: number): number =>
   Math.max(1, screenWidth - PROMPT_WIDTH - 1);
 
 export const getMaxVisibleInputLines = (screenHeight: number): number =>
-  Math.max(4, Math.floor(screenHeight * 0.5));
+  clamp(
+    Math.floor(screenHeight * VISIBLE_INPUT_HEIGHT_RATIO),
+    MIN_VISIBLE_INPUT_LINES,
+    MAX_VISIBLE_INPUT_LINES,
+  );
 
 const InputBox = ({
   view,
@@ -66,7 +73,11 @@ const InputBox = ({
           {PROMPT}
         </Text>
         <Box width={inputColumns} height={inputHeight} flexShrink={1} overflow="hidden">
-          <Text color={isDimmed ? "gray" : undefined} dimColor={isDimmed}>
+          <Text
+            color={isDimmed ? "gray" : undefined}
+            dimColor={isDimmed}
+            wrap="truncate-end"
+          >
             {visibleText}
           </Text>
         </Box>
@@ -87,5 +98,8 @@ const getVisibleLineStart = (
   const lastStart = lineCount - maxVisibleLines;
   return Math.min(Math.max(0, cursorLine - maxVisibleLines + 1), lastStart);
 };
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(value, max));
 
 export default InputBox;
