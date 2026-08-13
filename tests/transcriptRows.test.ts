@@ -7,6 +7,8 @@ import {
 import type { AssistantTurn } from "../src/ui/assistantTurn.js";
 import type { ChatEntry } from "../src/ui/hooks/index.js";
 
+const SELECTION_HINT = "  提示: 可滚轮浏览内容，按住 Shift 拖拽选择文字";
+
 test("wraps plain English by terminal columns", () => {
   assert.deepEqual(wrapTextByColumns("hello world", 5), ["hello", " worl", "d"]);
 });
@@ -96,4 +98,51 @@ test("adds header rows before chat history", () => {
   assert.equal(rows[1]?.segments?.some((segment) => segment.color === "#E24B5A"), true);
   assert.equal(rows[1]?.segments?.some((segment) => segment.color === "#55A8E8"), true);
   assert.equal(rows.at(-1)?.text, "❯ hello");
+});
+
+test("adds selection hint only to completed thinking rows", () => {
+  const rows = buildTranscriptRows({
+    entries: [
+      {
+        id: "thinking_1",
+        role: "thinking",
+        content: "done thinking",
+        timestamp: 1,
+      },
+    ],
+    streamingReasoning: "still thinking",
+    streamingAssistantTurn: null,
+    width: 80,
+  });
+
+  assert.deepEqual(
+    rows.map((row) => ({ kind: row.kind, text: row.text })),
+    [
+      { kind: "spacer", text: "" },
+      { kind: "thinking", text: "Thinking: done thinking" },
+      { kind: "thinking", text: SELECTION_HINT },
+      { kind: "spacer", text: "" },
+      { kind: "spacer", text: "" },
+      { kind: "thinking", text: "Thinking: still thinking" },
+      { kind: "spacer", text: "" },
+    ],
+  );
+});
+
+test("does not show selection hint without completed thinking", () => {
+  const rows = buildTranscriptRows({
+    entries: [
+      {
+        id: "user_1",
+        role: "user",
+        content: "hello",
+        timestamp: 1,
+      },
+    ],
+    streamingReasoning: "",
+    streamingAssistantTurn: null,
+    width: 80,
+  });
+
+  assert.equal(rows.some((row) => row.text === SELECTION_HINT), false);
 });

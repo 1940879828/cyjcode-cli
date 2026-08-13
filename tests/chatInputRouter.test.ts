@@ -26,6 +26,25 @@ test("consumes mouse clicks without routing to input", () => {
   );
 });
 
+test("routes idle wheel events to transcript scroll and idle text to input", () => {
+  assert.deepEqual(
+    routeChatInput("\u001b[<65;18;22M", {}, {
+      isStreaming: false,
+      isTranscriptPinnedToBottom: true,
+      wheelRows: 5,
+    }),
+    { type: "scroll", actions: [{ type: "lineDown", amount: 5 }] },
+  );
+  assert.deepEqual(
+    routeChatInput("hello", {}, {
+      isStreaming: false,
+      isTranscriptPinnedToBottom: true,
+      wheelRows: 5,
+    }),
+    { type: "input", input: "hello", key: {} },
+  );
+});
+
 test("routes page keys to transcript scrolling", () => {
   assert.deepEqual(
     routeChatInput("", { pageUp: true }, {

@@ -56,12 +56,14 @@ const VALUE_COLOR = "#F5F7FF";
 const USER_PREFIX = "❯ ";
 const ASSISTANT_PREFIX = "● ";
 const CONTINUATION_PREFIX = "  ";
+const SELECTION_HINT = "提示: 可滚轮浏览内容，按住 Shift 拖拽选择文字";
 
 interface ThinkingRowsInput {
   rows: TranscriptRow[];
   id: string;
   content: string;
   width: number;
+  showSelectionHint: boolean;
 }
 
 interface WrapState {
@@ -103,7 +105,13 @@ const appendStreamingRows = (
   input: Pick<BuildTranscriptRowsInput, "streamingReasoning" | "streamingAssistantTurn" | "width">,
 ) => {
   if (input.streamingReasoning) {
-    appendThinkingRows({ rows, id: "streaming_reasoning", content: input.streamingReasoning, width: input.width });
+    appendThinkingRows({
+      rows,
+      id: "streaming_reasoning",
+      content: input.streamingReasoning,
+      width: input.width,
+      showSelectionHint: false,
+    });
   }
 
   if (input.streamingAssistantTurn) {
@@ -244,7 +252,7 @@ const appendTextEntryRows = (
 ) => {
   const { kind, firstPrefix, restPrefix } = getTextEntryRowConfig(entry);
   if (kind === "thinking") {
-    appendThinkingRows({ rows, id: entry.id, content: entry.content, width });
+    appendCompletedThinkingRows(rows, entry, width);
     return;
   }
 
@@ -289,7 +297,32 @@ const appendThinkingRows = (input: ThinkingRowsInput) => {
     firstPrefix: "Thinking: ",
     restPrefix: CONTINUATION_PREFIX,
   });
+  if (input.showSelectionHint) appendSelectionHintRow(input.rows, input.id);
   appendSpacerRow(input.rows, `${input.id}_after`);
+};
+
+const appendCompletedThinkingRows = (
+  rows: TranscriptRow[],
+  entry: TextChatEntry,
+  width: number,
+) => {
+  appendThinkingRows({
+    rows,
+    id: entry.id,
+    content: entry.content,
+    width,
+    showSelectionHint: true,
+  });
+};
+
+const appendSelectionHintRow = (rows: TranscriptRow[], id: string) => {
+  rows.push({
+    id: `${id}_selection_hint`,
+    kind: "thinking",
+    text: `${CONTINUATION_PREFIX}${SELECTION_HINT}`,
+    color: "gray",
+    dimColor: true,
+  });
 };
 
 const appendSpacerRow = (rows: TranscriptRow[], id: string) => {

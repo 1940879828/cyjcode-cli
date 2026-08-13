@@ -102,7 +102,7 @@ const App = ({ agentRunner }: AppProps) => {
 
   useChatInputRouter({
     enabled: configured === true && !isExiting,
-    mouseTrackingEnabled: isStreaming,
+    mouseTrackingEnabled: configured === true && !isExiting,
     isStreaming,
     isTranscriptPinnedToBottom: transcriptController.isPinnedToBottom,
     wheelRows: transcriptController.wheelRows,
