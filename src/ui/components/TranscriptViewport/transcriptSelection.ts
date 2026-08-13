@@ -2,16 +2,16 @@ import stringWidth from "string-width";
 import type {
   TranscriptRow,
   TranscriptRowSegment,
+  TranscriptRowSource,
   TranscriptSourceUnit,
 } from "./transcriptRows.js";
 import { splitGraphemes } from "./transcriptRows.js";
 
 export type TranscriptSelectAction = "start" | "extend" | "end";
 
-/** 选中文本背景色 RGB(38, 79, 120) */
 export const SELECTION_BACKGROUND = "#264F78";
 
-/** 鼠标选择事件，col/row 为 SGR 上报的 1-based 终端坐标 */
+/** col/row 为 SGR 上报的 1-based 终端坐标。 */
 export interface TranscriptSelectEvent {
   action: TranscriptSelectAction;
   col: number;
@@ -32,7 +32,6 @@ export interface TranscriptSelection {
   active: TranscriptSelectionPoint;
 }
 
-/** toCol 为开区间，Infinity 表示行尾；坐标为行内单元格列（含装饰前缀） */
 export interface RowSelectionRange {
   fromCol: number;
   toCol: number;
@@ -46,7 +45,6 @@ export interface RowSelectionPart {
   dimColor?: boolean;
 }
 
-/** 选中边界：源单元索引 + 单元内字符偏移 */
 export interface SourceSelectionBounds {
   startIndex: number;
   endIndex: number;
@@ -59,6 +57,18 @@ interface TranscriptSelectionReduceInput {
   selection: TranscriptSelection | null;
   visibleRows: readonly TranscriptRow[];
   sources: readonly TranscriptSourceUnit[];
+}
+
+interface RowSourceSelection {
+  prefix: string;
+  fragment: string;
+  relativeStartOffset: number;
+  relativeEndOffset: number;
+}
+
+interface OffsetRange {
+  from: number;
+  to: number;
 }
 
 export interface TranscriptSelectionReduceResult {
@@ -125,7 +135,6 @@ export const createSourceIndexLookup = (
   return (sourceId) => indexById.get(sourceId) ?? -1;
 };
 
-/** 某源单元在选中范围内的字符区间，to 为 Infinity 表示单元末尾 */
 export const getUnitSelectionRange = (
   bounds: SourceSelectionBounds,
   unitIndex: number,
@@ -136,7 +145,6 @@ export const getUnitSelectionRange = (
   return from >= to ? null : { from, to };
 };
 
-/** 复制内容：直接从源文本切片，单元之间以换行连接 */
 export const buildSelectedText = (
   sources: readonly TranscriptSourceUnit[],
   selection: TranscriptSelection,
@@ -152,7 +160,6 @@ export const buildSelectedText = (
   return lines.join("\n");
 };
 
-/** 把源层选中投影为可见行的列范围（渲染 overlay 用），装饰行（无 source）不参与 */
 export const buildSelectionRowRanges = (
   selection: TranscriptSelection | null,
   sources: readonly TranscriptSourceUnit[],
@@ -175,23 +182,48 @@ const getRowSelectionRangeForRow = (
   indexOf: (sourceId: string) => number,
   row: TranscriptRow,
 ): RowSelectionRange | null => {
-  if (!row.source) return null;
-  const unitIndex = indexOf(row.source.sourceId);
-  if (unitIndex < 0) return null;
-  const unitRange = getUnitSelectionRange(bounds, unitIndex);
-  if (!unitRange) return null;
-  const rowStart = row.source.startOffset;
-  const rowEnd = row.source.endOffset;
-  const selStart = Math.max(rowStart, unitRange.from);
-  const selEnd = Math.min(rowEnd, unitRange.to);
-  if (selStart >= selEnd) return null;
-  const fragment = row.text.slice(row.source.prefix.length);
-  const [fromCol, toCol] = measureColumnRange(fragment, selStart - rowStart, selEnd - rowStart);
-  const prefixCells = stringWidth(row.source.prefix);
+  const selection = getRowSourceSelection(bounds, indexOf, row);
+  if (!selection) return null;
+  const [fromCol, toCol] = measureColumnRange(
+    selection.fragment,
+    selection.relativeStartOffset,
+    selection.relativeEndOffset,
+  );
+  const prefixCells = stringWidth(selection.prefix);
   return { fromCol: prefixCells + fromCol, toCol: prefixCells + toCol };
 };
 
-/** 行内 cell 列 → 源文本点；装饰前缀不映射源文本 */
+const getRowSourceSelection = (
+  bounds: SourceSelectionBounds,
+  indexOf: (sourceId: string) => number,
+  row: TranscriptRow,
+): RowSourceSelection | null => {
+  if (!row.source) return null;
+  const overlap = getRowSourceOverlap(bounds, indexOf, row.source);
+  if (!overlap) return null;
+  return {
+    prefix: row.source.prefix,
+    fragment: row.text.slice(row.source.prefix.length),
+    relativeStartOffset: overlap.from - row.source.startOffset,
+    relativeEndOffset: overlap.to - row.source.startOffset,
+  };
+};
+
+const getRowSourceOverlap = (
+  bounds: SourceSelectionBounds,
+  indexOf: (sourceId: string) => number,
+  source: TranscriptRowSource,
+): OffsetRange | null => {
+  const unitIndex = indexOf(source.sourceId);
+  if (unitIndex < 0) return null;
+  const unitRange = getUnitSelectionRange(bounds, unitIndex);
+  if (!unitRange) return null;
+  const from = Math.max(source.startOffset, unitRange.from);
+  const to = Math.min(source.endOffset, unitRange.to);
+  return from >= to ? null : { from, to };
+};
+
+/** 装饰前缀不映射源文本，cell 坐标会从内容区开始折算为 offset。 */
 export const getSourcePointAtCell = (
   row: TranscriptRow,
   cell: number,
@@ -202,11 +234,10 @@ export const getSourcePointAtCell = (
   const relativeCell = Math.max(0, cell - prefixCells);
   return {
     sourceId: row.source.sourceId,
-    offset: row.source.startOffset + charIndexOfCell(fragment, relativeCell),
+    offset: row.source.startOffset + offsetOfCell(fragment, relativeCell),
   };
 };
 
-/** 按选中列范围切分一行：保留 segments 各自的样式，仅对选中列叠加背景 */
 export const splitRowPartsBySelection = (
   row: TranscriptRow,
   range: RowSelectionRange,
@@ -241,10 +272,15 @@ const splitSegmentBySelection = (
   };
   return splitRowBySelection(segment.text, localRange)
     .filter((part) => part.text || part.selected)
-    .map((part) => ({ ...part, color: segment.color, bold: segment.bold, dimColor: segment.dimColor }));
+    .map((part) => ({
+      ...part,
+      color: segment.color,
+      bold: segment.bold,
+      dimColor: segment.dimColor,
+    }));
 };
 
-/** 按选中列范围把一行文本切分为选中/未选中片段，宽字符跨边界时整体归入选中段 */
+/** 宽字符跨过选择边界时，整枚字素归入选中段。 */
 export const splitRowBySelection = (
   text: string,
   range: RowSelectionRange,
@@ -278,7 +314,7 @@ const isPointFirst = (
   b: { index: number; offset: number },
 ): boolean => a.index < b.index || (a.index === b.index && a.offset <= b.offset);
 
-// 按下点必须在内容区且所在行有源出处，否则视为无效（点击装饰行/输入框不产生选中）
+// 点击装饰行或输入框不产生选中。
 const toStartPoint = (
   event: TranscriptSelectEvent,
   visibleRows: readonly TranscriptRow[],
@@ -288,7 +324,6 @@ const toStartPoint = (
   return getSourcePointAtCell(visibleRows[rowIndex], Math.max(0, event.col - 1));
 };
 
-// 拖拽/松开坐标钳制到可见行范围
 const toClampedPoint = (
   event: TranscriptSelectEvent,
   visibleRows: readonly TranscriptRow[],
@@ -299,7 +334,7 @@ const toClampedPoint = (
   return getSourcePointAtCell(visibleRows[rowIndex], Math.max(0, event.col - 1));
 };
 
-// 松开坐标作为最终 active：终端未上报拖拽移动事件时也能得到完整选区
+// 松开坐标也更新 active，用来兼容未上报拖拽移动事件的终端。
 const getEndSelection = (
   event: TranscriptSelectEvent,
   selection: TranscriptSelection | null,
@@ -322,34 +357,32 @@ const finishTranscriptSelection = (
   return { selection: null, copyText: buildSelectedText(sources, selection) };
 };
 
-/** 片段 [startChar, endChar) 的起止单元格列（以片段为局部坐标系） */
 const measureColumnRange = (
   text: string,
-  startChar: number,
-  endChar: number,
+  startOffset: number,
+  endOffset: number,
 ): [number, number] => {
   let column = 0;
-  let charIndex = 0;
+  let offset = 0;
   let startColumn = -1;
   let endColumn = -1;
   for (const cluster of splitGraphemes(text)) {
-    if (startColumn < 0 && charIndex >= startChar) startColumn = column;
-    if (endColumn < 0 && charIndex >= endChar) endColumn = column;
+    if (startColumn < 0 && offset >= startOffset) startColumn = column;
+    if (endColumn < 0 && offset >= endOffset) endColumn = column;
     column += Math.max(1, stringWidth(cluster));
-    charIndex += cluster.length;
+    offset += cluster.length;
   }
   return [startColumn < 0 ? column : startColumn, endColumn < 0 ? column : endColumn];
 };
 
-/** 单元格列对应的字符索引；超出宽度时取片段末尾 */
-const charIndexOfCell = (text: string, cell: number): number => {
+const offsetOfCell = (text: string, cell: number): number => {
   let column = 0;
-  let charIndex = 0;
+  let offset = 0;
   for (const cluster of splitGraphemes(text)) {
     const width = Math.max(1, stringWidth(cluster));
-    if (column + width > cell) return charIndex;
+    if (column + width > cell) return offset;
     column += width;
-    charIndex += cluster.length;
+    offset += cluster.length;
   }
-  return charIndex;
+  return offset;
 };

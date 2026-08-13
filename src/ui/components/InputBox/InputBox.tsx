@@ -3,9 +3,7 @@ import stringWidth from "string-width";
 import LoadingStatus from "../LoadingStatus/LoadingStatus.js";
 import type { InputBoxView } from "./inputBoxModel.js";
 
-// 输入框提示符
 const PROMPT = "❯ ";
-// 输入框提示符的宽度（以"column"为单位）
 const PROMPT_WIDTH = stringWidth(PROMPT);
 const MIN_VISIBLE_INPUT_LINES = 4;
 const MAX_VISIBLE_INPUT_LINES = 16;
@@ -16,14 +14,11 @@ interface Props {
   screenWidth: number;
   inputColumns: number;
   maxVisibleLines: number;
-  // 为 true 时输入框不可输入
   disabled: boolean;
   statusMessage?: string | null;
-  // true 表示 App 正在退出 : isActive 变 false 隐藏光标
   isExiting?: boolean;
 }
 
-// 输入框实际可用的宽度（列数）
 export const getInputColumns = (screenWidth: number): number =>
   Math.max(1, screenWidth - PROMPT_WIDTH - 1);
 
@@ -48,7 +43,7 @@ const InputBox = ({
   const renderedLines = renderedText.split("\n");
   const visibleLineStart = getVisibleLineStart(
     renderedLines.length,
-    view.cursorLine,
+    view.cursorVisualLine,
     maxVisibleLines,
   );
   const visibleText = renderedLines
@@ -94,7 +89,7 @@ const InputBox = ({
 
 const getVisibleLineStart = (
   lineCount: number,
-  cursorLine: number,
+  cursorVisualLine: number,
   maxVisibleLines: number,
 ): number => {
   if (lineCount <= maxVisibleLines) {
@@ -102,7 +97,7 @@ const getVisibleLineStart = (
   }
 
   const lastStart = lineCount - maxVisibleLines;
-  return Math.min(Math.max(0, cursorLine - maxVisibleLines + 1), lastStart);
+  return Math.min(Math.max(0, cursorVisualLine - maxVisibleLines + 1), lastStart);
 };
 
 const clamp = (value: number, min: number, max: number): number =>
