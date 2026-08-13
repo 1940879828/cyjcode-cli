@@ -9,7 +9,7 @@ import { buildSystemPrompt } from "./prompt.js";
 import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
 import type { AgentEvent } from "./types.js";
 
-const MAX_ROUNDS = 10;
+const MAX_ROUNDS = 50;
 const EMPTY_REPLY = "（无回复内容）";
 
 interface SessionContext {
@@ -202,7 +202,7 @@ async function* executeToolCalls(
 }
 
 async function* emitToolExecution(input: ToolExecutionContext): AsyncGenerator<AgentEvent> {
-  const { session, turn, toolCall, args } = input;
+  const { toolCall, args } = input;
   const tool = getTool(toolCall.function.name);
   if (!tool) {
     yield* emitToolFailure({ ...input, errorMessage: "未注册的工具" });
