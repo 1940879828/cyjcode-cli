@@ -40,6 +40,7 @@ test("builds stable transcript row order", () => {
     parts: [
       { id: "assistant_text", kind: "text", content: "hello" },
       { id: "assistant_tool", kind: "tool", content: '👀读取文件"src/a.ts" L1-2' },
+      { id: "assistant_tool_2", kind: "tool", content: "✓ 读取完成" },
     ],
     activeText: "done",
     timestamp: 2,
@@ -66,7 +67,10 @@ test("builds stable transcript row order", () => {
     [
       { kind: "user", text: "❯ question" },
       { kind: "assistant", text: "● hello" },
+      { kind: "spacer", text: "" },
       { kind: "tool", text: '  👀读取文件"src/a.ts" L1-2' },
+      { kind: "tool", text: "  ✓ 读取完成" },
+      { kind: "spacer", text: "" },
       { kind: "assistant", text: "● done" },
       { kind: "spacer", text: "" },
       { kind: "spacer", text: "" },

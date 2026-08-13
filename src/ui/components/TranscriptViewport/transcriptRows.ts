@@ -83,6 +83,21 @@ interface ThinkingRowsInput {
   showSelectionHint: boolean;
 }
 
+interface AssistantBoundaryInput {
+  rows: TranscriptRow[];
+  turnId: string;
+  previousBlock: AssistantBlockKind | null;
+  currentBlock: AssistantBlockKind;
+  index: number;
+}
+
+interface ActiveAssistantBlockInput {
+  rows: TranscriptRow[];
+  turn: AssistantTurn;
+  width: number;
+  previousBlock: AssistantBlockKind | null;
+}
+
 /** 折行产物：text 为该物理行内容，offset 为该行在源文本中的字符区间 */
 interface WrappedLine {
   text: string;
@@ -175,6 +190,7 @@ const appendHeaderRows = (
   const innerWidth = boxWidth - 2;
   buildHeaderRows(header, innerWidth)
     .forEach((row, index) => rows.push({ ...row, id: `header_${index}` }));
+  appendSpacerRow(rows, "header_after");
 };
 
 const buildHeaderRows = (
@@ -408,10 +424,49 @@ const appendAssistantTurnRows = (
   turn: AssistantTurn,
   width: number,
 ) => {
-  turn.parts.forEach((part) => appendAssistantPartRows(rows, part, width));
-
-  if (turn.activeText) appendActiveAssistantRow(rows, turn, width);
+  const previousBlock = appendAssistantPartBlocks(rows, turn, width);
+  appendActiveAssistantBlock({ rows, turn, width, previousBlock });
   appendSpacerRow(rows, `${turn.id}_after`);
+};
+
+type AssistantBlockKind = "text" | "tool";
+
+const appendAssistantPartBlocks = (
+  rows: TranscriptRow[],
+  turn: AssistantTurn,
+  width: number,
+): AssistantBlockKind | null => {
+  let previousBlock: AssistantBlockKind | null = null;
+  turn.parts.forEach((part, index) => {
+    previousBlock = appendAssistantBoundary({
+      rows,
+      turnId: turn.id,
+      previousBlock,
+      currentBlock: getAssistantBlockKind(part.kind),
+      index,
+    });
+    appendAssistantPartRows(rows, part, width);
+  });
+  return previousBlock;
+};
+
+const appendActiveAssistantBlock = (input: ActiveAssistantBlockInput) => {
+  if (!input.turn.activeText) return;
+  appendAssistantBoundary({
+    rows: input.rows,
+    turnId: input.turn.id,
+    previousBlock: input.previousBlock,
+    currentBlock: "text",
+    index: input.turn.parts.length,
+  });
+  appendActiveAssistantRow(input.rows, input.turn, input.width);
+};
+
+const appendAssistantBoundary = (input: AssistantBoundaryInput): AssistantBlockKind => {
+  if (input.previousBlock && input.previousBlock !== input.currentBlock) {
+    appendSpacerRow(input.rows, `${input.turnId}_block_${input.index}_before`);
+  }
+  return input.currentBlock;
 };
 
 const appendAssistantPartRows = (
@@ -451,6 +506,9 @@ const getAssistantPartRowKind = (
   }
   return "assistant";
 };
+
+const getAssistantBlockKind = (kind: AssistantTurnPartKind): AssistantBlockKind =>
+  kind === "text" ? "text" : "tool";
 
 const appendWrappedRows = (
   rows: TranscriptRow[],
