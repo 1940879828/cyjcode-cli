@@ -93,18 +93,26 @@ function toFallbackBar(bar: ContextUsageBarView): string {
 export function selectContextUsageView(
   state: ContextUsageState,
   model: string,
-): ContextUsageView | null {
+): ContextUsageView {
   if (state.status === "idle") {
-    return null;
+    return selectIdleContextUsageView(model);
   }
   if (state.status === "loading") {
-    return { text: "上下文 统计中...", color: "gray" };
+    return { text: "统计中...", color: "gray" };
   }
   if (state.status === "error") {
-    return { text: "上下文 统计失败", color: "red" };
+    return { text: "统计失败", color: "red" };
   }
 
   return selectReadyContextUsageView(state.usage, model);
+}
+
+function selectIdleContextUsageView(model: string): ContextUsageView {
+  return {
+    text: "",
+    color: "gray",
+    bar: formatContextUsageBar(0, getContextWindow(model)),
+  };
 }
 
 function selectReadyContextUsageView(usage: TokenUsage, model: string): ContextUsageView {
@@ -112,7 +120,7 @@ function selectReadyContextUsageView(usage: TokenUsage, model: string): ContextU
   const ratio = usage.promptTokens / contextWindow;
   const bar = formatContextUsageBar(usage.promptTokens, contextWindow);
   return {
-    text: "上下文",
+    text: "",
     color: getUsageColor(ratio),
     bar,
   };

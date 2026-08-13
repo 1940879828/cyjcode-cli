@@ -15,6 +15,7 @@ import TranscriptViewport, { useTranscriptViewportController } from "./component
 import { useInputBoxController } from "./components/InputBox/useInputBoxController.js";
 import { appendInputHistory } from "./components/InputBox/inputBoxModel.js";
 import { selectContextUsageView } from "./contextUsage.js";
+import type { ContextUsageView } from "./contextUsage.js";
 import { parseSlashInput } from "./commands.js";
 import SetupWizard from "./SetupWizard.js";
 
@@ -199,31 +200,46 @@ function ContextUsageFooter({
   contextUsage: Parameters<typeof selectContextUsageView>[0];
 }) {
   const contextUsageView = selectContextUsageView(contextUsage, config.model);
-  if (!contextUsageView) {
-    return <Box paddingX={1} height={1}><Text> </Text></Box>;
-  }
   return (
     <Box paddingX={1} height={1}>
-      {contextUsageView.bar
-        ? <ContextUsageBar view={contextUsageView} />
-        : (
-          <Text color={contextUsageView.color} dimColor={contextUsageView.color === "gray"}>
-            {contextUsageView.text}
-          </Text>
-        )}
+      <Text>{config.model}</Text>
+      {config.thinking ? (
+        <>
+          <FooterSeparator />
+          <Text>Thinking ON</Text>
+          <FooterSeparator />
+          <Text>{`Effort:${config.reasoningEffort}`}</Text>
+        </>
+      ) : null}
+      <FooterSeparator />
+      <ContextUsageIndicator view={contextUsageView} />
     </Box>
   );
 }
 
-function ContextUsageBar({
-  view,
-}: {
-  view: NonNullable<ReturnType<typeof selectContextUsageView>>;
-}) {
+function FooterSeparator() {
+  return (
+    <Text color="gray" >
+      {" | "}
+    </Text>
+  );
+}
+
+function ContextUsageIndicator({ view }: { view: ContextUsageView }) {
+  if (view.bar) {
+    return <ContextUsageBar view={view} />;
+  }
+  return (
+    <Text color={view.color} dimColor={view.color === "gray"}>
+      {view.text}
+    </Text>
+  );
+}
+
+function ContextUsageBar({ view }: { view: ContextUsageView }) {
   if (!view.bar) return null;
   return (
     <>
-      <Text color="gray" dimColor>{view.text} </Text>
       <Text backgroundColor={view.bar.usedBackgroundColor}>{view.bar.used}</Text>
       <Text backgroundColor={view.bar.unusedBackgroundColor}>{view.bar.unused}</Text>
       <Text color="gray" dimColor>{` ${view.bar.suffix}`}</Text>

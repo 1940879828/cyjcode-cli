@@ -38,11 +38,28 @@ test("getContextWindow follows DeepSeek V4 and default model windows", () => {
   assert.equal(getContextWindow("other-model"), 256 * 1024);
 });
 
-test("selectContextUsageView uses promptTokens for context capacity", () => {
-  assert.equal(selectContextUsageView({ status: "idle" }, "deepseek-v4-pro"), null);
+test("selectContextUsageView shows context capacity for every state", () => {
+  assert.deepEqual(
+    selectContextUsageView({ status: "idle" }, "deepseek-v4-pro"),
+    {
+      text: "",
+      color: "gray",
+      bar: {
+        used: "",
+        unused: "               ",
+        usedBackgroundColor: "#55A8E8",
+        unusedBackgroundColor: "#2A2F36",
+        suffix: "0/1M 0.0%",
+      },
+    },
+  );
   assert.deepEqual(
     selectContextUsageView({ status: "loading" }, "deepseek-v4-pro"),
-    { text: "上下文 统计中...", color: "gray" },
+    { text: "统计中...", color: "gray" },
+  );
+  assert.deepEqual(
+    selectContextUsageView({ status: "error" }, "deepseek-v4-pro"),
+    { text: "统计失败", color: "red" },
   );
   assert.deepEqual(
     selectContextUsageView({
@@ -54,7 +71,7 @@ test("selectContextUsageView uses promptTokens for context capacity", () => {
       },
     }, "custom"),
     {
-      text: "上下文",
+      text: "",
       color: "gray",
       bar: {
         used: "",
