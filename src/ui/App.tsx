@@ -109,6 +109,7 @@ const App = ({ agentRunner }: AppProps) => {
     wheelRows: transcriptController.wheelRows,
     requestExit,
     scroll: transcriptController.scroll,
+    select: transcriptController.handleSelectEvent,
     handleInput: inputController.handleInput,
     handlePaste: inputController.handlePaste,
   });
@@ -135,6 +136,7 @@ const App = ({ agentRunner }: AppProps) => {
         height={transcriptController.height}
         visibleRows={transcriptController.visibleRows}
         showScrollHint={transcriptController.showScrollHint}
+        selectionRanges={transcriptController.selectionRanges}
       />
 
       <Box ref={footerRef} flexDirection="column">

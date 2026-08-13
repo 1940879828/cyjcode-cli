@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   buildCachedTranscriptRows,
   createTranscriptRowsCache,
-} from "../src/ui/transcriptRowsCache.js";
+} from "../src/ui/components/TranscriptViewport/transcriptRowsCache.js";
 import type { ChatEntry } from "../src/ui/hooks/index.js";
 
 test("reuses completed entry rows when appending new entries", () => {

@@ -22,6 +22,8 @@ export interface TranscriptRow {
   backgroundColor?: string;
   bold?: boolean;
   dimColor?: boolean;
+  /** 行在源文本中的出处；装饰行（header/分隔/hint）无 source */
+  source?: TranscriptRowSource;
 }
 
 export interface TranscriptRowSegment {
@@ -29,6 +31,20 @@ export interface TranscriptRowSegment {
   color?: string;
   bold?: boolean;
   dimColor?: boolean;
+}
+
+/** 源文本单元：id 与行 source.sourceId 对应，text 为未经折行的原文 */
+export interface TranscriptSourceUnit {
+  id: string;
+  text: string;
+}
+
+/** 源文本字符区间 + 行内装饰前缀；offset 为 JS 字符索引 */
+export interface TranscriptRowSource {
+  sourceId: string;
+  startOffset: number;
+  endOffset: number;
+  prefix: string;
 }
 
 export interface BuildTranscriptRowsInput {
@@ -57,7 +73,7 @@ const VALUE_COLOR = "#F5F7FF";
 const USER_PREFIX = "❯ ";
 const ASSISTANT_PREFIX = "● ";
 const CONTINUATION_PREFIX = "  ";
-const SELECTION_HINT = "提示: 可滚轮浏览内容，按住 Shift 拖拽选择文字";
+const SELECTION_HINT = "提示: 可拖拽选择文字，按住 Shift 滚轮浏览内容";
 
 interface ThinkingRowsInput {
   rows: TranscriptRow[];
@@ -67,10 +83,11 @@ interface ThinkingRowsInput {
   showSelectionHint: boolean;
 }
 
-interface WrapState {
-  rows: string[];
-  current: string;
-  currentWidth: number;
+/** 折行产物：text 为该物理行内容，offset 为该行在源文本中的字符区间 */
+interface WrappedLine {
+  text: string;
+  startOffset: number;
+  endOffset: number;
 }
 
 const ROLE_STYLES: Record<TranscriptRowKind, Omit<TranscriptRow, "id" | "kind" | "text">> = {
@@ -457,14 +474,20 @@ const appendWrappedRows = (
 
 const createWrappedRow = (
   options: Parameters<typeof appendWrappedRows>[1],
-  line: string,
+  line: WrappedLine,
   index: number,
 ): TranscriptRow => {
   const prefix = index === 0 ? options.firstPrefix : options.restPrefix;
   return {
     id: `${options.id}_${index}`,
     kind: options.kind,
-    text: `${prefix}${line}`,
+    text: `${prefix}${line.text}`,
+    source: {
+      sourceId: options.id,
+      startOffset: line.startOffset,
+      endOffset: line.endOffset,
+      prefix,
+    },
     ...ROLE_STYLES[options.kind],
   };
 };
@@ -473,66 +496,128 @@ const wrapTextWithContinuation = (
   text: string,
   firstWidth: number,
   restWidth: number,
-): string[] => {
-  const rows: string[] = [];
+): WrappedLine[] => {
+  const rows: WrappedLine[] = [];
+  let baseOffset = 0;
   text.split(/\n/).forEach((line) => {
     const wrapped = wrapLogicalLineWithFirstWidth(
       line,
       rows.length === 0 ? firstWidth : restWidth,
       restWidth,
     );
-    rows.push(...wrapped);
+    rows.push(...wrapped.map((part) => shiftWrappedLine(part, baseOffset)));
+    baseOffset += line.length + 1;
   });
-  return rows.length > 0 ? rows : [""];
+  return rows.length > 0 ? rows : [{ text: "", startOffset: 0, endOffset: 0 }];
 };
 
+const shiftWrappedLine = (line: WrappedLine, offset: number): WrappedLine => ({
+  text: line.text,
+  startOffset: line.startOffset + offset,
+  endOffset: line.endOffset + offset,
+});
+
 const wrapLogicalLine = (line: string, width: number): string[] => {
-  return wrapLogicalLineWithWidths(line, width, width);
+  return wrapLogicalLineWithWidths(line, width, width).map((part) => part.text);
 };
 
 const wrapLogicalLineWithFirstWidth = (
   line: string,
   firstWidth: number,
   restWidth: number,
-): string[] => {
+): WrappedLine[] => {
   return wrapLogicalLineWithWidths(line, firstWidth, restWidth);
 };
+
+// 折行游标：lineStart/lineLength 跟踪当前物理行在逻辑行内的字符区间
+interface WrapCursor {
+  rows: WrappedLine[];
+  current: string;
+  currentWidth: number;
+  lineStart: number;
+  lineLength: number;
+}
 
 const wrapLogicalLineWithWidths = (
   line: string,
   firstWidth: number,
   restWidth: number,
-): string[] => {
-  if (!line) return [""];
-  const state: WrapState = { rows: [], current: "", currentWidth: 0 };
+): WrappedLine[] => {
+  if (!line) return [{ text: "", startOffset: 0, endOffset: 0 }];
+  const state: WrapCursor = { rows: [], current: "", currentWidth: 0, lineStart: 0, lineLength: 0 };
   for (const cluster of splitGraphemes(line)) {
     appendCluster(state, cluster, state.rows.length === 0 ? firstWidth : restWidth);
   }
   return finishWrapState(state);
 };
 
-const appendCluster = (state: WrapState, cluster: string, width: number): void => {
+const appendCluster = (state: WrapCursor, cluster: string, width: number): void => {
   const clusterWidth = Math.max(1, stringWidth(cluster));
   if (state.current && state.currentWidth + clusterWidth > width) {
-    state.rows.push(state.current);
+    state.rows.push({
+      text: state.current,
+      startOffset: state.lineStart,
+      endOffset: state.lineStart + state.lineLength,
+    });
+    state.lineStart += state.lineLength;
     state.current = cluster;
     state.currentWidth = clusterWidth;
+    state.lineLength = cluster.length;
     return;
   }
   state.current += cluster;
   state.currentWidth += clusterWidth;
+  state.lineLength += cluster.length;
 };
 
-const finishWrapState = (state: WrapState): string[] => {
-  state.rows.push(state.current);
+const finishWrapState = (state: WrapCursor): WrappedLine[] => {
+  state.rows.push({
+    text: state.current,
+    startOffset: state.lineStart,
+    endOffset: state.lineStart + state.lineLength,
+  });
   return state.rows;
 };
 
-const splitGraphemes = (text: string): string[] => {
+export const splitGraphemes = (text: string): string[] => {
   if (typeof Intl.Segmenter !== "function") {
     return Array.from(text);
   }
 
   const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
   return Array.from(segmenter.segment(text), (segment) => segment.segment);
+};
+
+/** 源文本单元枚举，顺序与行构建一致；选中与复制都以它为基准 */
+export const buildTranscriptSources = (
+  input: Pick<BuildTranscriptRowsInput, "entries" | "streamingReasoning" | "streamingAssistantTurn">,
+): TranscriptSourceUnit[] => {
+  const sources: TranscriptSourceUnit[] = [];
+  for (const entry of input.entries) {
+    appendEntrySources(sources, entry);
+  }
+  if (input.streamingReasoning) {
+    sources.push({ id: "streaming_reasoning", text: input.streamingReasoning });
+  }
+  if (input.streamingAssistantTurn) {
+    appendTurnSources(sources, input.streamingAssistantTurn);
+  }
+  return sources;
+};
+
+const appendEntrySources = (sources: TranscriptSourceUnit[], entry: ChatEntry) => {
+  if (entry.role === "assistant") {
+    appendTurnSources(sources, entry);
+    return;
+  }
+  sources.push({ id: entry.id, text: entry.content });
+};
+
+const appendTurnSources = (sources: TranscriptSourceUnit[], turn: AssistantTurn) => {
+  for (const part of turn.parts) {
+    sources.push({ id: part.id, text: part.content });
+  }
+  if (turn.activeText) {
+    sources.push({ id: `${turn.id}_active`, text: turn.activeText });
+  }
 };

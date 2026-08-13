@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { stripMouseInput } from "../src/ui/hooks/useChatInputRouter.js";
+import { stripMouseInput } from "../src/ui/hooks/terminalMouse.js";
 import {
   appendInputHistory,
   createInputBoxState,

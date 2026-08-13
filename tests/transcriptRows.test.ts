@@ -4,13 +4,14 @@ import {
   buildTranscriptEntryRows,
   buildTranscriptHeaderRows,
   buildTranscriptRows,
+  buildTranscriptSources,
   buildTranscriptStreamingRows,
   wrapTextByColumns,
-} from "../src/ui/transcriptRows.js";
+} from "../src/ui/components/TranscriptViewport/transcriptRows.js";
 import type { AssistantTurn } from "../src/ui/assistantTurn.js";
 import type { ChatEntry } from "../src/ui/hooks/index.js";
 
-const SELECTION_HINT = "  提示: 可滚轮浏览内容，按住 Shift 拖拽选择文字";
+const SELECTION_HINT = "  提示: 可拖拽选择文字，按住 Shift 滚轮浏览内容";
 
 test("wraps plain English by terminal columns", () => {
   assert.deepEqual(wrapTextByColumns("hello world", 5), ["hello", " worl", "d"]);
@@ -98,9 +99,12 @@ test("adds header rows before chat history", () => {
   });
 
   assert.equal(rows[0]?.kind, "header");
-  assert.equal(rows[0]?.text.startsWith("╭"), true);
-  assert.equal(rows[1]?.segments?.some((segment) => segment.color === "#E24B5A"), true);
-  assert.equal(rows[1]?.segments?.some((segment) => segment.color === "#55A8E8"), true);
+  assert.equal(rows.some((row) => row.kind === "header" && row.text.startsWith("╭")), true);
+  const titleRow = rows.find((row) =>
+    row.segments?.some((segment) => segment.text.includes("Tiga")),
+  );
+  assert.equal(titleRow?.segments?.some((segment) => segment.color === "#E24B5A"), true);
+  assert.equal(titleRow?.segments?.some((segment) => segment.color === "#55A8E8"), true);
   assert.equal(rows.at(-1)?.text, "❯ hello");
 });
 
@@ -258,3 +262,88 @@ function createAssistantTurnFixture(): AssistantTurn {
     timestamp: 1,
   };
 }
+
+test("wrapped rows carry source offsets into the original text", () => {
+  const entry: ChatEntry = {
+    id: "user_1",
+    role: "user",
+    content: "hello world",
+    timestamp: 1,
+  };
+  const rows = buildTranscriptEntryRows({ entry, width: 10 });
+
+  assert.equal(rows[0]?.text, "❯ hello wo");
+  assert.deepEqual(rows[0]?.source, {
+    sourceId: "user_1",
+    startOffset: 0,
+    endOffset: 8,
+    prefix: "❯ ",
+  });
+  assert.equal(rows[1]?.text, "  rld");
+  assert.deepEqual(rows[1]?.source, {
+    sourceId: "user_1",
+    startOffset: 8,
+    endOffset: 11,
+    prefix: "  ",
+  });
+});
+
+test("every source row reconstructs its fragment from the original text", () => {
+  const content = "line one\nline two";
+  const entry: ChatEntry = {
+    id: "user_1",
+    role: "user",
+    content,
+    timestamp: 1,
+  };
+  const rows = buildTranscriptEntryRows({ entry, width: 40 });
+  const sourceRows = rows.filter((row) => row.source);
+
+  for (const row of sourceRows) {
+    const rowSource = row.source!;
+    assert.equal(
+      row.text,
+      rowSource.prefix + content.slice(rowSource.startOffset, rowSource.endOffset),
+    );
+  }
+  // 同一单元的物理行首尾相接（跨逻辑行时偏移跳过换行符）
+  assert.deepEqual(
+    sourceRows.map((row) => [row.source!.startOffset, row.source!.endOffset]),
+    [[0, 8], [9, 17]],
+  );
+});
+
+test("builds source units in row order from entries and streaming content", () => {
+  const entries: ChatEntry[] = [
+    { id: "user_1", role: "user", content: "question", timestamp: 1 },
+    {
+      id: "assistant_1",
+      role: "assistant",
+      parts: [{ id: "assistant_text", kind: "text", content: "hello" }],
+      activeText: "",
+      timestamp: 2,
+    },
+  ];
+  const liveTurn: AssistantTurn = {
+    id: "assistant_2",
+    role: "assistant",
+    parts: [{ id: "assistant_2_text", kind: "text", content: "live" }],
+    activeText: "active",
+    timestamp: 3,
+  };
+
+  assert.deepEqual(
+    buildTranscriptSources({
+      entries,
+      streamingReasoning: "thinking",
+      streamingAssistantTurn: liveTurn,
+    }),
+    [
+      { id: "user_1", text: "question" },
+      { id: "assistant_text", text: "hello" },
+      { id: "streaming_reasoning", text: "thinking" },
+      { id: "assistant_2_text", text: "live" },
+      { id: "assistant_2_active", text: "active" },
+    ],
+  );
+});

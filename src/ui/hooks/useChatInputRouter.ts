@@ -2,11 +2,14 @@ import { useEffect, useRef, type RefObject } from "react";
 import { useInput, usePaste } from "ink";
 import type { Key } from "ink";
 import type { TranscriptScrollAction } from "../components/TranscriptViewport/transcriptScroll.js";
-
-const ENABLE_SGR_MOUSE = "\u001b[?1000h\u001b[?1006h";
-const DISABLE_SGR_MOUSE = "\u001b[?1000l\u001b[?1006l";
-const SGR_MOUSE_PATTERN = /(?:\u001b\[|\[)?<(\d+)(?:;\d+){2,}[mM]/g;
-const LEGACY_MOUSE_PATTERN = /\u001b\[M.{3}/gs;
+import type { TranscriptSelectEvent } from "../components/TranscriptViewport/transcriptSelection.js";
+import {
+  DISABLE_SGR_MOUSE,
+  ENABLE_SGR_MOUSE,
+  getMouseBatchActions,
+  hasMouseInput,
+  type MouseBatchAction,
+} from "./terminalMouse.js";
 
 export interface ChatInputKey {
   pageUp?: boolean;
@@ -19,6 +22,7 @@ export interface ChatInputKey {
 export type ChatInputRoute =
   | { type: "exit" }
   | { type: "scroll"; actions: TranscriptScrollAction[] }
+  | { type: "mouseBatch"; actions: MouseBatchAction[] }
   | { type: "input"; input: string; key: ChatInputKey }
   | { type: "mouse" }
   | { type: "ignore" };
@@ -37,14 +41,10 @@ export interface ChatInputRouterOptions {
   wheelRows: number;
   requestExit: () => void;
   scroll: (action: TranscriptScrollAction) => void;
+  select: (event: TranscriptSelectEvent) => void;
   handleInput: (input: string, key: Key) => void;
   handlePaste: (text: string) => void;
 }
-
-export const stripMouseInput = (input: string): string =>
-  input
-    .replace(SGR_MOUSE_PATTERN, "")
-    .replace(LEGACY_MOUSE_PATTERN, "");
 
 export const routeChatInput = (
   input: string,
@@ -65,26 +65,10 @@ export const routeChatInput = (
 };
 
 function routeMouseInput(input: string, wheelRows: number): ChatInputRoute | null {
-  const mouseActions = getMouseScrollActions(input, wheelRows);
-  if (mouseActions.length > 0) return { type: "scroll", actions: mouseActions };
+  const actions = getMouseBatchActions(input, wheelRows);
+  if (actions.length > 0) return { type: "mouseBatch", actions };
   return hasMouseInput(input) ? { type: "mouse" } : null;
 }
-
-export const getMouseScrollActions = (
-  input: string,
-  wheelRows: number,
-): TranscriptScrollAction[] => {
-  const actions: TranscriptScrollAction[] = [];
-  for (const match of input.matchAll(SGR_MOUSE_PATTERN)) {
-    if (match[1] === "64") {
-      actions.push({ type: "lineUp", amount: wheelRows });
-    }
-    if (match[1] === "65") {
-      actions.push({ type: "lineDown", amount: wheelRows });
-    }
-  }
-  return actions;
-};
 
 export function useChatInputRouter(options: ChatInputRouterOptions) {
   const optionsRef = useRef(options);
@@ -102,6 +86,7 @@ function useRouteInput(optionsRef: RefObject<ChatInputRouterOptions>, enabled: b
     dispatchRoute(route, {
       requestExit: current.requestExit,
       scroll: current.scroll,
+      select: current.select,
       handleInput: current.handleInput,
     });
   }, { isActive: enabled });
@@ -138,7 +123,7 @@ function canTrackMouse(enabled: boolean, mouseTrackingEnabled: boolean): boolean
 
 const dispatchRoute = (
   route: ChatInputRoute,
-  handlers: Pick<ChatInputRouterOptions, "requestExit" | "scroll" | "handleInput">,
+  handlers: Pick<ChatInputRouterOptions, "requestExit" | "scroll" | "select" | "handleInput">,
 ) => {
   switch (route.type) {
     case "exit":
@@ -147,6 +132,7 @@ const dispatchRoute = (
     case "scroll":
       route.actions.forEach(handlers.scroll);
       return;
+    case "mouseBatch": route.actions.forEach((action) => dispatchMouseAction(action, handlers)); return;
     case "input":
       handlers.handleInput(route.input, route.key as Key);
       return;
@@ -156,8 +142,13 @@ const dispatchRoute = (
   }
 };
 
-const hasMouseInput = (input: string): boolean =>
-  input.search(SGR_MOUSE_PATTERN) !== -1 || input.search(LEGACY_MOUSE_PATTERN) !== -1;
+const dispatchMouseAction = (
+  action: MouseBatchAction,
+  handlers: Pick<ChatInputRouterOptions, "scroll" | "select">,
+) => {
+  if (action.kind === "scroll") handlers.scroll(action.action);
+  else if (action.kind === "select") handlers.select(action.event);
+};
 
 const isExitInput = (input: string, key: ChatInputKey): boolean =>
   (key.ctrl && input.toLowerCase() === "c") || input === "\u0003";

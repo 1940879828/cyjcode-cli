@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import type { AssistantTurn } from "../../assistantTurn.js";
 import type { ChatEntry } from "../../hooks/index.js";
 import type { BuildTranscriptRowsInput, TranscriptHeader, TranscriptRow } from "./transcriptRows.js";
+import { buildTranscriptSources } from "./transcriptRows.js";
 import { buildCachedTranscriptRows, createTranscriptRowsCache } from "./transcriptRowsCache.js";
 import {
   createTranscriptScrollState,
@@ -14,6 +15,13 @@ import {
   type TranscriptScrollAction,
   type TranscriptScrollState,
 } from "./transcriptScroll.js";
+import { useTranscriptSelectionController } from "./useTranscriptSelectionController.js";
+import {
+  splitRowPartsBySelection,
+  SELECTION_BACKGROUND,
+  type RowSelectionRange,
+  type TranscriptSelectEvent,
+} from "./transcriptSelection.js";
 
 const MAX_TRANSCRIPT_ROWS = 2000;
 const MIN_VIEWPORT_HEIGHT = 1;
@@ -34,16 +42,20 @@ interface TranscriptViewportController {
   isPinnedToBottom: boolean;
   wheelRows: number;
   scroll: (action: TranscriptScrollAction) => void;
+  selectionRanges: ReadonlyMap<string, RowSelectionRange>;
+  handleSelectEvent: (event: TranscriptSelectEvent) => void;
 }
 
 interface TranscriptViewportProps {
   height: number;
   visibleRows: readonly TranscriptRow[];
   showScrollHint: boolean;
+  selectionRanges: ReadonlyMap<string, RowSelectionRange>;
 }
 
 interface TranscriptRowViewProps {
   row: TranscriptRow;
+  selectionRanges: ReadonlyMap<string, RowSelectionRange>;
 }
 
 export const useTranscriptViewportController = ({
@@ -72,6 +84,8 @@ export const useTranscriptViewportController = ({
   const bodyHeight = getBodyHeight(viewportHeight, pinnedToBottom);
   const visibleRows = selectVisibleTranscriptRows(rows, renderState, bodyHeight);
   const wheelRows = Math.max(3, Math.floor(bodyHeight / 3));
+  const sources = buildTranscriptSources({ entries, streamingReasoning, streamingAssistantTurn });
+  const selectionController = useTranscriptSelectionController({ visibleRows, sources });
 
   useEffect(() => {
     setScrollState((current) => {
@@ -82,6 +96,7 @@ export const useTranscriptViewportController = ({
 
   useEffect(() => {
     setScrollState(createTranscriptScrollState(rows.length));
+    selectionController.clearSelection();
   }, [historyAnchor]);
 
   const scroll = (action: TranscriptScrollAction) => {
@@ -97,6 +112,8 @@ export const useTranscriptViewportController = ({
     isPinnedToBottom: pinnedToBottom,
     wheelRows,
     scroll,
+    selectionRanges: selectionController.selectionRanges,
+    handleSelectEvent: selectionController.handleSelectEvent,
   };
 };
 
@@ -160,11 +177,12 @@ const TranscriptViewport = ({
   height,
   visibleRows,
   showScrollHint,
+  selectionRanges,
 }: TranscriptViewportProps) => {
   return (
     <Box flexDirection="column" height={height} overflow="hidden">
       {visibleRows.map((row) => (
-        <TranscriptRowView key={row.id} row={row} />
+        <TranscriptRowView key={row.id} row={row} selectionRanges={selectionRanges} />
       ))}
       {showScrollHint && (
         <Text color="gray" dimColor>
@@ -175,7 +193,15 @@ const TranscriptViewport = ({
   );
 };
 
-const TranscriptRowView = ({ row }: TranscriptRowViewProps) => (
+const TranscriptRowView = ({ row, selectionRanges }: TranscriptRowViewProps) => {
+  const range = selectionRanges.get(row.id);
+  if (!range) {
+    return <PlainTranscriptRow row={row} />;
+  }
+  return <SelectedTranscriptRow row={row} range={range} />;
+};
+
+const PlainTranscriptRow = ({ row }: { row: TranscriptRow }) => (
   <Text
     color={row.color}
     backgroundColor={row.backgroundColor}
@@ -196,6 +222,26 @@ const TranscriptRowView = ({ row }: TranscriptRowViewProps) => (
       : row.text || " "}
   </Text>
 );
+
+// 选中作为视觉 overlay：保留 segments 各自的颜色/加粗/变暗，仅对选中列叠加背景色
+const SelectedTranscriptRow = ({ row, range }: { row: TranscriptRow; range: RowSelectionRange }) => {
+  const parts = splitRowPartsBySelection(row, range);
+  return (
+    <Text color={row.color} bold={row.bold} dimColor={row.dimColor}>
+      {parts.map((part, index) => (
+        <Text
+          key={`${row.id}_selection_${index}`}
+          color={part.color}
+          bold={part.bold}
+          dimColor={part.dimColor}
+          backgroundColor={part.selected ? SELECTION_BACKGROUND : row.backgroundColor}
+        >
+          {part.text}
+        </Text>
+      ))}
+    </Text>
+  );
+};
 
 export default TranscriptViewport;
 export type { TranscriptRow };

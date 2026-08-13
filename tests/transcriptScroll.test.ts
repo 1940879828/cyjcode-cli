@@ -7,7 +7,7 @@ import {
   scrollTranscript,
   scrollTranscriptHalfPage,
   selectVisibleTranscriptRows,
-} from "../src/ui/transcriptScroll.js";
+} from "../src/ui/components/TranscriptViewport/transcriptScroll.js";
 
 test("keeps pinned viewport at bottom when content grows", () => {
   const state = createTranscriptScrollState(10);
