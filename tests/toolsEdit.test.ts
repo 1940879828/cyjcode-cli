@@ -19,6 +19,23 @@ test("edit fails before a file is read", () => {
   assert.match(result.error ?? "", /未知的 snippetId/);
 });
 
+test("edit points empty snippetId back to read", () => {
+  const result = edit.execute({
+    oldString: "a",
+    newString: "b",
+  });
+
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /请先 read 文件/);
+  assert.match(result.error ?? "", /metadata\.snippet\.id/);
+});
+
+test("edit tool description requires reading before editing", () => {
+  assert.match(edit.description, /必须先调用 read/);
+  assert.match(edit.description, /metadata\.snippet\.id/);
+  assert.match(String(edit.parameters.properties.snippetId.description), /没有这个值时请先调用 read/);
+});
+
 test("read returns a snippet id", () => {
   withWorkspace((workspace) => {
     const filePath = path.join(workspace, "sample.ts");

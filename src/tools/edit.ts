@@ -47,13 +47,13 @@ interface CandidateInput {
 const edit = {
   name: "edit",
   description:
-    "基于 read 返回的 snippetId 对文件做安全的局部字符串替换。必须先读取文件再编辑。",
+    "编辑文件前必须先调用 read 读取目标文件，并使用 read 返回的 metadata.snippet.id 作为 snippetId。不要在没有 snippetId 时调用 edit；改用 read 获取 snippetId 后再编辑。",
   parameters: {
     type: "object",
     properties: {
       snippetId: {
         type: "string",
-        description: "read 工具返回的 snippet.id，用于限定编辑范围",
+        description: "必填。read 工具返回的 metadata.snippet.id，用于限定编辑范围；没有这个值时请先调用 read",
       },
       filePath: {
         type: "string",
@@ -89,7 +89,7 @@ const edit = {
     const expectedOccurrences = parseExpectedOccurrences(args.expectedOccurrences);
 
     if (!snippetId) {
-      return { success: false, error: "snippetId 参数不能为空" };
+      return { success: false, error: "snippetId 不能为空。请先 read 文件，再用 metadata.snippet.id。" };
     }
     if (!oldString) {
       return { success: false, error: "oldString 参数不能为空" };
