@@ -78,7 +78,7 @@ export type StreamEvent =
   { 
     // 本轮对话结束
     type: "done"; 
-    message: ChatMessage
+    toolCalls: ToolCall[] | null
   }
   | 
   { 

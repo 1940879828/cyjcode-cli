@@ -32,7 +32,7 @@ export function consumeStreamEvent(
     case "text_delta": return consumeTextDelta(context.response, event.content);
     case "usage": return consumeUsage(context.response, event.usage);
     case "done":
-      context.response.toolCalls = extractToolCalls(event.message.tool_calls);
+      context.response.toolCalls = event.toolCalls;
       return null;
     case "tool_call_delta": return { type: "tool_call_delta", deltas: event.deltas };
     case "error": throw event.error;
@@ -82,10 +82,6 @@ function consumeTextDelta(response: TurnResponse, content: string): AgentEvent {
 function consumeUsage(response: TurnResponse, usage: TokenUsage): AgentEvent {
   response.usage = usage;
   return { type: "usage", usage };
-}
-
-function extractToolCalls(toolCalls: ToolCall[] | undefined): ToolCall[] | null {
-  return toolCalls?.length ? toolCalls : null;
 }
 
 function truncateForLog(text: string, limit: number): string {

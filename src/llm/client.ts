@@ -39,7 +39,6 @@ interface ToolCallAccumulator {
 
 interface StreamState {
   toolCalls: Map<number, ToolCallAccumulator>;
-  hasContent: boolean;
 }
 
 function buildClient(): OpenAI {
@@ -98,7 +97,7 @@ async function* consumeChatStream(stream: AsyncIterable<ChatChunk>): AsyncGenera
       yield event;
     }
   }
-  yield { type: "done", message: buildFinalMessage(state) };
+  yield { type: "done", toolCalls: buildCompletedToolCalls(state) };
 }
 
 async function createChatStream(
@@ -135,7 +134,7 @@ export function buildStreamingParamsWithConfig(
 }
 
 function createStreamState(): StreamState {
-  return { toolCalls: new Map(), hasContent: false };
+  return { toolCalls: new Map() };
 }
 
 function consumeChunk(chunk: ChatChunk, state: StreamState): StreamEvent[] {
@@ -146,7 +145,7 @@ function consumeChunk(chunk: ChatChunk, state: StreamState): StreamEvent[] {
   return [
     ...events,
     ...reasoningEvents(delta),
-    ...textEvents(delta, state),
+    ...textEvents(delta),
     ...toolCallEvents(delta, state),
   ];
 }
@@ -164,10 +163,8 @@ function reasoningEvents(delta: ChatChunk["choices"][number]["delta"]): StreamEv
 
 function textEvents(
   delta: ChatChunk["choices"][number]["delta"],
-  state: StreamState,
 ): StreamEvent[] {
   if (!delta.content) return [];
-  state.hasContent = true;
   return [{ type: "text_delta", content: delta.content }];
 }
 
@@ -213,11 +210,8 @@ function toToolCallDelta(
   };
 }
 
-function buildFinalMessage(state: StreamState): ChatMessage {
-  const finalMessage: ChatMessage = { role: "assistant", content: null };
-  if (state.hasContent && state.toolCalls.size === 0) finalMessage.content = "";
-  if (state.toolCalls.size > 0) finalMessage.tool_calls = buildToolCalls(state);
-  return finalMessage;
+function buildCompletedToolCalls(state: StreamState): ToolCall[] | null {
+  return state.toolCalls.size > 0 ? buildToolCalls(state) : null;
 }
 
 function buildToolCalls(state: StreamState): ToolCall[] {
