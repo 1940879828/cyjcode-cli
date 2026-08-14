@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import type { ChatMessage } from "../src/llm/types.js";
 import { buildMessages } from "../src/agent/messageBuilder.js";
 import { buildSystemPrompt } from "../src/agent/prompt.js";
-import type { AgentHistoryStore } from "../src/agent/runtime.js";
+import {
+  createDefaultAgentRuntime,
+  createTransientAgentRuntime,
+  type AgentHistoryStore,
+} from "../src/agent/runtime.js";
 
 function createMemoryHistory(messages: ChatMessage[] = []): AgentHistoryStore {
   return {
@@ -47,4 +54,29 @@ test("memory history can truncate aborted turns", () => {
   history.truncate(start);
 
   assert.deepEqual(history.getMessages(), [{ role: "user", content: "before" }]);
+});
+
+test("default runtime rejects an explicit missing session id", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tigacode-missing-session-"));
+  try {
+    assert.throws(
+      () => createDefaultAgentRuntime({ workspaceRoot, sessionId: "ses_missing" }),
+      /会话不存在: ses_missing/,
+    );
+  } finally {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("transient runtime keeps history in memory", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tigacode-transient-runtime-"));
+  try {
+    const runtime = createTransientAgentRuntime(workspaceRoot);
+    runtime.history.addMessage({ role: "user", content: "devmock input" });
+
+    assert.deepEqual(runtime.history.getMessages(), [{ role: "user", content: "devmock input" }]);
+    assert.equal(fs.existsSync(path.join(workspaceRoot, ".tigacode")), false);
+  } finally {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
 });

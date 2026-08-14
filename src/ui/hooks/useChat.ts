@@ -6,9 +6,15 @@ import {
   type SetStateAction,
 } from "react";
 import { runAgentLoop } from "../../agent/loop.js";
-import { clearHistory } from "../../agent/history.js";
-import { resetDefaultSkillSessionState } from "../../agent/runtime.js";
+import {
+  createDefaultAgentRuntime,
+  createTransientAgentRuntime,
+  resetDefaultSkillSessionState,
+  type AgentRuntime,
+} from "../../agent/runtime.js";
+import { defaultSessionStore, type SessionInfo } from "../../agent/sessionStore.js";
 import type { AgentEvent } from "../../agent/types.js";
+import type { ChatMessage } from "../../llm/types.js";
 import {
   finalizeAssistantTurn,
   hasAssistantTurnContent,
@@ -23,10 +29,12 @@ import {
   type PendingAskUserQuestion,
 } from "../chatEventReducer.js";
 import type { ChatEntry, TextChatEntry } from "../chatTypes.js";
+import { messagesToChatEntries } from "../historyTranscript.js";
 export type { ChatEntry, TextChatEntry, ToolCallEntry, ToolResultEntry } from "../chatTypes.js";
 
 export interface AgentRunOptions {
   signal?: AbortSignal;
+  runtime?: AgentRuntime;
 }
 
 export type AgentRunner = (
@@ -36,6 +44,8 @@ export type AgentRunner = (
 
 export interface UseChatOptions {
   agentRunner?: AgentRunner;
+  initialSessionId?: string;
+  persistSessions?: boolean;
 }
 
 let entryCounter = 0;
@@ -77,6 +87,7 @@ interface ActiveRun {
 interface ChatRuntimeRefs {
   abortControllerRef: MutableRefObject<AbortController | null>;
   activeRunIdRef: MutableRefObject<number>;
+  agentRuntimeRef: MutableRefObject<AgentRuntime>;
   streamingReasoningRef: MutableRefObject<string>;
   streamingAssistantTurnRef: MutableRefObject<AssistantTurn | null>;
 }
@@ -95,10 +106,25 @@ interface ChatState {
 
 const INTERRUPTED_MESSAGE = "对话已中断";
 
+interface SessionSwitchInput {
+  runtimeRef: MutableRefObject<AgentRuntime>;
+  setEntries: Dispatch<SetStateAction<ChatEntry[]>>;
+  setters: ChatStateSetters;
+}
+
+interface SessionCommandsInput extends SessionSwitchInput {
+  persistSessions: boolean;
+}
+
 export function useChat(options: UseChatOptions = {}) {
-  const agentRunner = options.agentRunner ?? runAgentLoop;
-  const state = useChatState();
-  const runtimeRefs = useChatRefs(state.streamingReasoning, state.streamingAssistantTurn);
+  const persistSessions = options.persistSessions ?? true;
+  const agentRuntimeRef = useAgentRuntimeRef({
+    sessionId: options.initialSessionId,
+    persistSessions,
+  });
+  const agentRunner = createRuntimeAgentRunner(options.agentRunner, agentRuntimeRef);
+  const state = useChatState(agentRuntimeRef.current.history.getMessages());
+  const runtimeRefs = useChatRefs(agentRuntimeRef, state.streamingReasoning, state.streamingAssistantTurn);
   const sendMessage = createSendMessage({
     agentRunner,
     append: state.append,
@@ -107,10 +133,16 @@ export function useChat(options: UseChatOptions = {}) {
     runtimeRefs,
   });
   const interrupt = createInterrupt(runtimeRefs, state.setters, state.append);
-  const clearChat = createClearChat(state.setEntries, state.setters);
+  const clearChat = createClearChat(agentRuntimeRef, state.setEntries, state.setters);
   const appendSystemMessage = (content: string) => state.append(makeEntry("system", content));
   const submitQuestionAnswers = createSubmitQuestionAnswers(state.setters.setPendingQuestion, sendMessage);
   const dismissQuestion = () => state.setters.setPendingQuestion(null);
+  const sessionCommands = createSessionCommands({
+    runtimeRef: agentRuntimeRef,
+    setEntries: state.setEntries,
+    setters: state.setters,
+    persistSessions,
+  });
 
   return {
     entries: state.entries,
@@ -125,11 +157,39 @@ export function useChat(options: UseChatOptions = {}) {
     interrupt,
     clearChat,
     appendSystemMessage,
+    ...sessionCommands,
   };
 }
 
-function useChatState(): ChatState {
-  const [entries, setEntries] = useState<ChatEntry[]>([]);
+function useAgentRuntimeRef(input: {
+  sessionId: string | undefined;
+  persistSessions: boolean;
+}): MutableRefObject<AgentRuntime> {
+  const ref = useRef<AgentRuntime | null>(null);
+  if (!ref.current) ref.current = createInitialRuntime(input);
+  return ref as MutableRefObject<AgentRuntime>;
+}
+
+function createInitialRuntime(input: {
+  sessionId: string | undefined;
+  persistSessions: boolean;
+}): AgentRuntime {
+  if (!input.persistSessions) return createTransientAgentRuntime();
+  return createDefaultAgentRuntime({ sessionId: input.sessionId });
+}
+
+function createRuntimeAgentRunner(
+  agentRunner: AgentRunner | undefined,
+  runtimeRef: MutableRefObject<AgentRuntime>,
+): AgentRunner {
+  if (agentRunner) return (text, options) => agentRunner(text, { ...options, runtime: runtimeRef.current });
+  return (text, options) => runAgentLoop(text, { ...options, runtime: runtimeRef.current });
+}
+
+function useChatState(messages: ChatMessage[]): ChatState {
+  const [entries, setEntries] = useState<ChatEntry[]>(() =>
+    messagesToChatEntries(messages, { nextId, now: Date.now })
+  );
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingReasoning, setStreamingReasoning] = useState("");
   const [streamingAssistantTurn, setStreamingAssistantTurn] = useState<AssistantTurn | null>(null);
@@ -151,6 +211,7 @@ function useChatState(): ChatState {
 }
 
 function useChatRefs(
+  agentRuntimeRef: MutableRefObject<AgentRuntime>,
   streamingReasoning: string,
   streamingAssistantTurn: AssistantTurn | null,
 ): ChatRuntimeRefs {
@@ -160,7 +221,13 @@ function useChatRefs(
   const streamingAssistantTurnRef = useRef(streamingAssistantTurn);
   streamingReasoningRef.current = streamingReasoning;
   streamingAssistantTurnRef.current = streamingAssistantTurn;
-  return { abortControllerRef, activeRunIdRef, streamingReasoningRef, streamingAssistantTurnRef };
+  return {
+    abortControllerRef,
+    activeRunIdRef,
+    agentRuntimeRef,
+    streamingReasoningRef,
+    streamingAssistantTurnRef,
+  };
 }
 
 function createSendMessage(input: {
@@ -263,17 +330,83 @@ const isActiveRun = (run: ActiveRun): boolean =>
   run.id === run.currentIdRef.current;
 
 function createClearChat(
+  runtimeRef: MutableRefObject<AgentRuntime>,
   setEntries: Dispatch<SetStateAction<ChatEntry[]>>,
   setters: ChatStateSetters,
 ): () => void {
   return () => {
     setEntries([]);
-    clearHistory();
+    runtimeRef.current.history.truncate(0);
     resetDefaultSkillSessionState();
-    setters.setStreamingAssistantTurn(null);
-    setters.setContextUsage({ status: "idle" });
-    setters.setPendingQuestion(null);
+    resetTransientChatState(setters);
   };
+}
+
+function createSessionCommands(input: SessionCommandsInput) {
+  if (!input.persistSessions) return createTransientSessionCommands(input);
+  return {
+    newSession: () => switchToNewSession(input),
+    listSessions: () => formatSessionList(defaultSessionStore.listSessions(input.runtimeRef.current.workspaceRoot)),
+    resumeSession: (sessionId: string) => resumeSession(sessionId, input),
+  };
+}
+
+function createTransientSessionCommands(input: SessionSwitchInput) {
+  return {
+    newSession: () => switchToTransientSession(input),
+    listSessions: () => "devmock 模式不保存会话",
+    resumeSession: () => "devmock 模式不支持恢复持久会话",
+  };
+}
+
+function switchToTransientSession(input: SessionSwitchInput): string {
+  input.runtimeRef.current = createTransientAgentRuntime(input.runtimeRef.current.workspaceRoot);
+  resetDefaultSkillSessionState();
+  input.setEntries([]);
+  resetTransientChatState(input.setters);
+  return `已创建临时会话: ${input.runtimeRef.current.sessionId}`;
+}
+
+function switchToNewSession(input: SessionSwitchInput): string {
+  const session = defaultSessionStore.createSession(input.runtimeRef.current.workspaceRoot);
+  input.runtimeRef.current = createDefaultAgentRuntime({ sessionId: session.id });
+  resetDefaultSkillSessionState();
+  input.setEntries([]);
+  resetTransientChatState(input.setters);
+  return `已创建新会话: ${session.id}`;
+}
+
+function resumeSession(
+  sessionId: string,
+  input: SessionSwitchInput,
+): string {
+  const workspaceRoot = input.runtimeRef.current.workspaceRoot;
+  if (!defaultSessionStore.setCurrentSession(workspaceRoot, sessionId)) return `未找到会话: ${sessionId}`;
+  input.runtimeRef.current = createDefaultAgentRuntime({ sessionId });
+  resetDefaultSkillSessionState();
+  input.setEntries(messagesToChatEntries(input.runtimeRef.current.history.getMessages(), {
+    nextId,
+    now: Date.now,
+  }));
+  resetTransientChatState(input.setters);
+  return `已恢复会话: ${sessionId}`;
+}
+
+function resetTransientChatState(setters: ChatStateSetters): void {
+  setters.setStreamingAssistantTurn(null);
+  setters.setStreamingReasoning("");
+  setters.setContextUsage({ status: "idle" });
+  setters.setPendingQuestion(null);
+}
+
+function formatSessionList(sessions: SessionInfo[]): string {
+  if (sessions.length === 0) return "暂无会话";
+  return ["当前工作区会话:", "", ...sessions.map(formatSessionLine)].join("\n");
+}
+
+function formatSessionLine(session: SessionInfo): string {
+  const updated = new Date(session.updatedAt).toLocaleString();
+  return `  ${session.id}  ${session.title}  (${session.messageCount} messages, ${updated})`;
 }
 
 function createSubmitQuestionAnswers(

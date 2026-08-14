@@ -1,8 +1,11 @@
-import { parseSlashInput } from "./commands.js";
+import { parseSlashInput, type SlashCommandContext } from "./commands.js";
 
 export interface SlashCommandHandlers {
   appendSystemMessage: (content: string) => void;
   clearChat: () => void;
+  newSession: () => string;
+  listSessions: () => string;
+  resumeSession: (sessionId: string) => string;
   sendMessage: (text: string) => Promise<void>;
   startSetup: () => void;
 }
@@ -22,8 +25,15 @@ export function handleSlashCommand(
     return;
   }
 
-  handlers.appendSystemMessage(parsed.command.handler(parsed.args, {
+  handlers.appendSystemMessage(parsed.command.handler(parsed.args, createSlashCommandContext(handlers)));
+}
+
+function createSlashCommandContext(handlers: SlashCommandHandlers): SlashCommandContext {
+  return {
     clearChat: handlers.clearChat,
+    newSession: handlers.newSession,
+    listSessions: handlers.listSessions,
+    resumeSession: handlers.resumeSession,
     startSetup: handlers.startSetup,
-  }));
+  };
 }

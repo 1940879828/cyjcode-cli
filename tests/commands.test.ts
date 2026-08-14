@@ -25,8 +25,7 @@ test("/help output lists /init", () => {
   }
 
   const output = help.command.handler([], {
-    clearChat: () => {},
-    startSetup: () => {},
+    ...createCommandContext(),
   });
 
   assert.match(output, /\/init\s+生成或更新 AGENTS\.md 项目说明/);
@@ -71,6 +70,13 @@ test("parseSlashInput recognizes /skills as a local command", () => {
   assert.equal(parsed?.command.execution, "local");
 });
 
+test("parseSlashInput recognizes session commands as local commands", () => {
+  assert.equal(parseSlashInput("/new")?.command.kind, "new");
+  assert.equal(parseSlashInput("/sessions")?.command.kind, "sessions");
+  assert.equal(parseSlashInput("/resume ses_demo")?.command.kind, "resume");
+  assert.equal(parseSlashInput("/resume ses_demo")?.command.execution, "local");
+});
+
 test("parseSlashInput recognizes installed skill names as agent commands", () => {
   withWorkspaceSkill((workspace) => {
     const parsed = parseSlashInput("/demo-skill hello");
@@ -104,8 +110,7 @@ test("/skills output marks loaded skills", () => {
     if (parsed?.command.execution !== "local") throw new Error("/skills should be local");
 
     const output = parsed.command.handler([], {
-      clearChat: () => {},
-      startSetup: () => {},
+      ...createCommandContext(),
     });
 
     assert.match(output, /demo-skill[\s\S]*\[project, loaded\]/);
@@ -118,6 +123,16 @@ function withWorkspaceSkill(assertions: (workspace: string) => void): void {
     writeDemoSkill(workspace);
     assertions(workspace);
   });
+}
+
+function createCommandContext() {
+  return {
+    clearChat: () => {},
+    newSession: () => "new",
+    listSessions: () => "sessions",
+    resumeSession: (sessionId: string) => sessionId,
+    startSetup: () => {},
+  };
 }
 
 function withEmptyWorkspace(assertions: (workspace: string) => void): void {

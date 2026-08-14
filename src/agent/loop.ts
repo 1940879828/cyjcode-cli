@@ -19,6 +19,7 @@ const EMPTY_REPLY = "（无回复内容）";
 
 interface SessionContext {
   sessionId: string;
+  runId: string;
   systemPrompt: string;
   tools: Record<string, unknown>[];
   runtime: AgentRuntime;
@@ -114,11 +115,12 @@ function createToolExecutionBatch(
 }
 
 function startSession(userMessage: string, runtime: AgentRuntime): SessionContext {
-  const sessionId = generateSessionId();
-  runtime.log("session.start", { sessionId, userMessage });
+  const runId = generateRunId();
+  runtime.log("session.start", { sessionId: runtime.sessionId, runId, userMessage });
   appendProjectInstructionsToHistory(runtime.workspaceRoot, runtime.history);
   return {
-    sessionId,
+    sessionId: runtime.sessionId,
+    runId,
     systemPrompt: runtime.buildSystemPrompt(),
     tools: toolsToOpenAI(),
     runtime,
@@ -136,7 +138,7 @@ async function* emitLlmTurn(
   options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, TurnResponse> {
   const messages = buildMessages(context.systemPrompt, context.runtime.history.getMessages());
-  context.runtime.log("llm.request", { sessionId: context.sessionId, turn, messageCount: messages.length });
+  logLlmRequest(context, turn, messages.length);
 
   const response = createTurnResponse();
   for await (const event of streamChat(createStreamChatOptions(context, messages, options))) {
@@ -147,6 +149,15 @@ async function* emitLlmTurn(
 
   logLlmResponse(context.sessionId, turn, response);
   return response;
+}
+
+function logLlmRequest(context: SessionContext, turn: number, messageCount: number): void {
+  context.runtime.log("llm.request", {
+    sessionId: context.sessionId,
+    runId: context.runId,
+    turn,
+    messageCount,
+  });
 }
 
 function createStreamChatOptions(
@@ -174,7 +185,12 @@ async function* finishTextResponse(
   context.runtime.history.addMessage({ role: "assistant", content });
   yield { type: "turn_end", turn };
   yield { type: "done", fullText: content };
-  context.runtime.log("session.end", { sessionId: context.sessionId, status: "success", totalTurns: turn });
+  context.runtime.log("session.end", {
+    sessionId: context.sessionId,
+    runId: context.runId,
+    status: "success",
+    totalTurns: turn,
+  });
 }
 
 export function selectExecutableToolCalls(toolCalls: ToolCall[]): ToolCall[] {
@@ -195,19 +211,33 @@ function* finishWithError(
   turn: number,
   error: string,
 ): Generator<AgentEvent> {
-  context.runtime.log("error", { sessionId: context.sessionId, turn, message: error });
+  context.runtime.log("error", { sessionId: context.sessionId, runId: context.runId, turn, message: error });
   yield { type: "error", error };
   yield { type: "turn_end", turn };
-  context.runtime.log("session.end", { sessionId: context.sessionId, status: "error", totalTurns: turn });
+  context.runtime.log("session.end", {
+    sessionId: context.sessionId,
+    runId: context.runId,
+    status: "error",
+    totalTurns: turn,
+  });
 }
 
 function* finishMaxRounds(context: SessionContext): Generator<AgentEvent> {
   const error = `已达到最大工具调用轮数 (${MAX_ROUNDS})，终止循环`;
-  context.runtime.log("error", { sessionId: context.sessionId, message: `达到最大轮数限制 (${MAX_ROUNDS})` });
-  context.runtime.log("session.end", { sessionId: context.sessionId, status: "max_rounds", totalTurns: MAX_ROUNDS });
+  context.runtime.log("error", {
+    sessionId: context.sessionId,
+    runId: context.runId,
+    message: `达到最大轮数限制 (${MAX_ROUNDS})`,
+  });
+  context.runtime.log("session.end", {
+    sessionId: context.sessionId,
+    runId: context.runId,
+    status: "max_rounds",
+    totalTurns: MAX_ROUNDS,
+  });
   yield { type: "error", error };
 }
 
-function generateSessionId(): string {
+function generateRunId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }

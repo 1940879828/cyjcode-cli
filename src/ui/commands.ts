@@ -9,6 +9,9 @@ export type SlashCommandKind =
   | "help"
   | "config"
   | "clear"
+  | "new"
+  | "sessions"
+  | "resume"
   | "setup"
   | "model"
   | "init"
@@ -20,6 +23,9 @@ export type SlashCommandKind =
 /** 命令执行时注入的依赖，把副作用从命令定义解耦出来 */
 export interface SlashCommandContext {
   clearChat: () => void;
+  newSession: () => string;
+  listSessions: () => string;
+  resumeSession: (sessionId: string) => string;
   startSetup: () => void;
 }
 
@@ -82,6 +88,30 @@ export const slashCommands: SlashCommand[] = [
     handler: (_args, ctx) => {
       ctx.clearChat();
       return "对话历史已清空";
+    },
+  },
+  {
+    kind: "new",
+    execution: "local",
+    name: "/new",
+    description: "创建并切换到新会话",
+    handler: (_args, ctx) => ctx.newSession(),
+  },
+  {
+    kind: "sessions",
+    execution: "local",
+    name: "/sessions",
+    description: "列出当前工作区会话",
+    handler: (_args, ctx) => ctx.listSessions(),
+  },
+  {
+    kind: "resume",
+    execution: "local",
+    name: "/resume",
+    description: "恢复指定会话",
+    handler: (args, ctx) => {
+      const sessionId = args[0];
+      return sessionId ? ctx.resumeSession(sessionId) : "用法: /resume <sessionId>";
     },
   },
   {

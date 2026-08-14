@@ -19,10 +19,12 @@ import AskUserQuestionPrompt from "./AskUserQuestionPrompt.js";
 
 interface AppProps {
   agentRunner?: AgentRunner;
+  initialSessionId?: string;
+  persistSessions?: boolean;
 }
 
-const App = ({ agentRunner }: AppProps) => {
-  const runtime = useAppRuntime(agentRunner);
+const App = ({ agentRunner, initialSessionId }: AppProps) => {
+  const runtime = useAppRuntime({ agentRunner, initialSessionId });
   return <AppContent runtime={runtime} />;
 };
 
@@ -50,19 +52,29 @@ interface SubmitHandlerInput {
   cancelExitConfirmation: () => void;
   appendSystemMessage: (content: string) => void;
   clearChat: () => void;
+  newSession: () => string;
+  listSessions: () => string;
+  resumeSession: (sessionId: string) => string;
   sendMessage: (text: string) => Promise<void>;
   startSetup: () => void;
 }
 
-function useAppRuntime(agentRunner: AgentRunner | undefined): AppRuntime {
+function useAppRuntime(input: AppProps): AppRuntime {
   const [configured, setConfigured] = useConfigurationState();
   const layout = useAppLayout();
   const exit = useExit({ captureInput: configured !== true });
-  const chat = useChat({ agentRunner });
+  const chat = useChat({
+    agentRunner: input.agentRunner,
+    initialSessionId: input.initialSessionId,
+    persistSessions: input.persistSessions,
+  });
   const submission = useSubmitHandler({
     cancelExitConfirmation: exit.cancelExitConfirmation,
     appendSystemMessage: chat.appendSystemMessage,
     clearChat: chat.clearChat,
+    newSession: chat.newSession,
+    listSessions: chat.listSessions,
+    resumeSession: chat.resumeSession,
     sendMessage: chat.sendMessage,
     startSetup: () => setConfigured(false),
   });

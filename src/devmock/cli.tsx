@@ -31,7 +31,7 @@ yargs(hideBin(process.argv))
       recordPath: argv.record,
       mockPath: argv.mock,
     });
-    startInk(React.createElement(App, { agentRunner }), {
+    startInk(React.createElement(App, { agentRunner, persistSessions: false }), {
       exitOnCtrlC: false,
       alternateScreen: true,
     });

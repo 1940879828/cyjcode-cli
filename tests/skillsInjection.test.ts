@@ -221,6 +221,7 @@ function createTestRuntime(workspace: string): AgentRuntime {
   const skillManager = createSkillManager(workspace);
   return {
     history,
+    sessionId: "test-session",
     workspaceRoot: workspace,
     log: () => {},
     buildSystemPrompt: () => "system",
