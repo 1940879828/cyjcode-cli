@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { ChatMessage } from "../src/llm/types.js";
+import type { ChatMessage, StreamEvent, ToolCall } from "../src/llm/types.js";
+import { runAgentLoop } from "../src/agent/loop.js";
 import { buildMessages } from "../src/agent/messageBuilder.js";
 import { buildSystemPrompt } from "../src/agent/prompt.js";
 import {
@@ -21,6 +22,45 @@ function createMemoryHistory(messages: ChatMessage[] = []): AgentHistoryStore {
       messages.length = Math.max(0, Math.min(length, messages.length));
     },
   };
+}
+
+function createCapturingStream(responses: StreamEvent[][]) {
+  const requests: ChatMessage[][] = [];
+  const streamChat = async function* (options: { messages: ChatMessage[] }): AsyncGenerator<StreamEvent> {
+    requests.push(options.messages);
+    for (const event of responses.shift() ?? [done(null)]) yield event;
+  };
+  return { requests, streamChat };
+}
+
+async function drainAgentLoop(
+  userMessage: string,
+  runtime: ReturnType<typeof createTransientAgentRuntime>,
+  streamChat: ReturnType<typeof createCapturingStream>["streamChat"],
+): Promise<void> {
+  for await (const _event of runAgentLoop(userMessage, { runtime, streamChatOverride: streamChat })) {
+    // Drain generator.
+  }
+}
+
+function textDelta(content: string): StreamEvent {
+  return { type: "text_delta", content };
+}
+
+function done(toolCalls: ToolCall[] | null): StreamEvent {
+  return { type: "done", toolCalls };
+}
+
+function toolCall(id: string, name: string): ToolCall {
+  return {
+    id,
+    type: "function",
+    function: { name, arguments: "{}" },
+  };
+}
+
+function isTurnIntakeMessage(message: ChatMessage): boolean {
+  return typeof message.content === "string" && message.content.includes("<turn_intake>");
 }
 
 test("system prompt uses the injected workspace root", () => {
@@ -115,4 +155,30 @@ test("transient runtime keeps history in memory", () => {
   } finally {
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
   }
+});
+
+test("agent loop sends turn intake without persisting it to history", async () => {
+  const runtime = createTransientAgentRuntime(process.cwd());
+  const stream = createCapturingStream([[textDelta("完成"), done(null)]]);
+
+  await drainAgentLoop("修一下白屏问题", runtime, stream.streamChat);
+
+  const request = stream.requests[0] ?? [];
+  assert.equal(request.some((message) => message.role === "user" && message.content === "修一下白屏问题"), true);
+  assert.equal(request.some(isTurnIntakeMessage), true);
+  assert.equal(runtime.history.getMessages().some(isTurnIntakeMessage), false);
+});
+
+test("agent loop keeps the same turn intake across tool turns", async () => {
+  const runtime = createTransientAgentRuntime(process.cwd());
+  const stream = createCapturingStream([
+    [done([toolCall("call_1", "missing_tool")])],
+    [textDelta("完成"), done(null)],
+  ]);
+
+  await drainAgentLoop("修一下白屏问题", runtime, stream.streamChat);
+
+  assert.equal(stream.requests.length, 2);
+  assert.equal(stream.requests.every((messages) => messages.some(isTurnIntakeMessage)), true);
+  assert.equal(runtime.history.getMessages().filter(isTurnIntakeMessage).length, 0);
 });

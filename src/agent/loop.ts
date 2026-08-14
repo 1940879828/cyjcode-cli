@@ -1,5 +1,5 @@
-import { streamChat } from "../llm/client.js";
-import type { ChatMessage, ToolCall } from "../llm/types.js";
+import { streamChat as defaultStreamChat } from "../llm/client.js";
+import type { ChatMessage, StreamEvent, ToolCall } from "../llm/types.js";
 import { toolsToOpenAI } from "../tools/index.js";
 import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
 import type { AgentEvent } from "./types.js";
@@ -19,6 +19,9 @@ import {
 import { executeToolCalls, type ToolExecutionBatch } from "./toolExecution.js";
 import { toErrorMessage } from "./errors.js";
 import { createDefaultAgentRuntime, type AgentRuntime } from "./runtime.js";
+import { analyzeTurnIntake, buildTurnIntakeMessage } from "./turnIntake.js";
+
+type StreamChat = (options: Parameters<typeof defaultStreamChat>[0]) => AsyncGenerator<StreamEvent>;
 
 const MAX_ROUNDS = 50;
 const EMPTY_REPLY = "（无回复内容）";
@@ -29,11 +32,14 @@ interface SessionContext {
   systemPrompt: string;
   tools: Record<string, unknown>[];
   runtime: AgentRuntime;
+  turnIntakeMessage: ChatMessage | null;
+  streamChat: StreamChat;
 }
 
 interface AgentLoopOptions {
   signal?: AbortSignal;
   runtime?: AgentRuntime;
+  streamChatOverride?: StreamChat;
 }
 
 interface LlmRequestLogInput {
@@ -50,7 +56,7 @@ export async function* runAgentLoop(
   const runtime = options.runtime ?? createDefaultAgentRuntime();
   const historyStart = runtime.history.getLength();
   const skillStateStart = runtime.skillManager.snapshot();
-  const context = startSession(userMessage, runtime);
+  const context = startSession(userMessage, runtime, options.streamChatOverride ?? defaultStreamChat);
 
   try {
     yield* runAgentSession(userMessage, context, options);
@@ -128,7 +134,7 @@ function createToolExecutionBatch(
   };
 }
 
-function startSession(userMessage: string, runtime: AgentRuntime): SessionContext {
+function startSession(userMessage: string, runtime: AgentRuntime, streamChat: StreamChat): SessionContext {
   const runId = generateRunId();
   runtime.log("session.start", { sessionId: runtime.sessionId, runId, userMessage });
   appendProjectInstructionsToHistory(runtime.workspaceRoot, runtime.history);
@@ -138,6 +144,8 @@ function startSession(userMessage: string, runtime: AgentRuntime): SessionContex
     systemPrompt: runtime.buildSystemPrompt(),
     tools: toolsToOpenAI(),
     runtime,
+    turnIntakeMessage: buildTurnIntakeMessage(analyzeTurnIntake(userMessage)),
+    streamChat,
   };
 }
 
@@ -152,11 +160,11 @@ async function* emitLlmTurn(
   options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, TurnResponse> {
   const observed = yield* observeRuntimeHistory(context, turn, options.signal);
-  const messages = buildMessages(context.systemPrompt, observed.messages);
+  const messages = buildMessages(context.systemPrompt, messagesWithTurnIntake(observed.messages, context));
   logLlmRequest({ context, turn, messageCount: messages.length, observation: observed.stats });
 
   const response = createTurnResponse();
-  for await (const event of streamChat(createStreamChatOptions(context, messages, options))) {
+  for await (const event of context.streamChat(createStreamChatOptions(context, messages, options))) {
     throwIfAborted(options.signal);
     const forwarded = consumeStreamEvent(event, { sessionId: context.sessionId, turn, response });
     if (forwarded) yield forwarded;
@@ -164,6 +172,10 @@ async function* emitLlmTurn(
 
   logLlmResponse(context.sessionId, turn, response);
   return response;
+}
+
+function messagesWithTurnIntake(messages: ChatMessage[], context: SessionContext): ChatMessage[] {
+  return context.turnIntakeMessage ? [...messages, context.turnIntakeMessage] : messages;
 }
 
 async function* observeRuntimeHistory(
@@ -202,7 +214,7 @@ function createStreamChatOptions(
   context: SessionContext,
   messages: ChatMessage[],
   options: AgentLoopOptions,
-): Parameters<typeof streamChat>[0] {
+): Parameters<StreamChat>[0] {
   return {
     messages,
     tools: context.tools,
