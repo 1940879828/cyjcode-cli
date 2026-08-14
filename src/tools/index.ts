@@ -6,6 +6,7 @@ import write from "./write.js";
 import rename from "./rename.js";
 import edit from "./edit.js";
 import shell from "./shell.js";
+import { gitTools } from "./git.js";
 import skill from "./skill.js";
 import askUserQuestion from "./askUserQuestion.js";
 import recallHistory from "./recallHistory.js";
@@ -17,6 +18,7 @@ export const allTools: Tool[] = [
   write,
   edit,
   rename,
+  ...gitTools,
   shell,
   skill,
   askUserQuestion,

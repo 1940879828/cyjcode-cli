@@ -51,7 +51,7 @@ type ShellResult = Awaited<ReturnType<typeof runShellCommand>>;
 const shell = defineTool({
   name: "shell",
   description:
-    "运行本地开发命令，适合测试、类型检查、构建、包管理、git 查询和环境检查。多条命令优先用 commands + stopOnError。tsx -e 避免顶层 await。文件读写搜索优先使用 read/edit/write/search/listDir；删除、网络、修改 git 历史等命令必须用对应枚举声明 sideEffects。",
+    "运行本地开发命令，适合测试、类型检查、构建、包管理和环境检查。git status/diff/log/commit 优先使用对应 git_* 工具。多条命令优先用 commands + stopOnError。tsx -e 避免顶层 await。文件读写搜索优先使用 read/edit/write/search/listDir；删除、网络、少见 git 历史操作等命令必须用对应枚举声明 sideEffects。",
   schema: shellArgsSchema,
   async execute(args): Promise<ToolResult> {
     const commands = resolveCommands(args);
