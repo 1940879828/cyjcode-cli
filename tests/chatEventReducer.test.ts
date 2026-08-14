@@ -88,6 +88,29 @@ test("keeps ready usage after done", () => {
   });
 });
 
+test("shows context compression as temporary thinking status", () => {
+  const harness = createHarness();
+  const session = createChatEventSession();
+
+  consumeChatEvent({ type: "context_compression_start", turn: 1 }, session, harness.handlers);
+  assert.equal(harness.streamingReasoning, "自动压缩中……");
+
+  consumeChatEvent(compressionEndEvent(), session, harness.handlers);
+  assert.equal(harness.streamingReasoning, "");
+  assert.equal(harness.entries.length, 0);
+});
+
+test("keeps real reasoning after context compression", () => {
+  const harness = createHarness();
+  const session = createChatEventSession();
+
+  consumeChatEvent({ type: "context_compression_start", turn: 1 }, session, harness.handlers);
+  consumeChatEvent(compressionEndEvent(), session, harness.handlers);
+  consumeChatEvent({ type: "reasoning_delta", content: "真实思考" }, session, harness.handlers);
+
+  assert.equal(harness.streamingReasoning, "真实思考");
+});
+
 test("turns standalone errors into chat entries", () => {
   const harness = createHarness();
   const session = createChatEventSession();
@@ -102,6 +125,20 @@ test("turns standalone errors into chat entries", () => {
   }]);
   assert.deepEqual(harness.contextUsage, { status: "error" });
 });
+
+function compressionEndEvent(): AgentEvent {
+  return {
+    type: "context_compression_end",
+    turn: 1,
+    stats: {
+      originalMessages: 30,
+      observedMessages: 12,
+      masks: 2,
+      estimatedOriginalTokens: 1000,
+      estimatedObservedTokens: 200,
+    },
+  };
+}
 
 test("shows pending tool call immediately", () => {
   const harness = createHarness();

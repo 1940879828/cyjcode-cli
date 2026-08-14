@@ -4,7 +4,12 @@ import { toolsToOpenAI } from "../tools/index.js";
 import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
 import type { AgentEvent } from "./types.js";
 import { buildMessages } from "./messageBuilder.js";
-import { observeHistory, type ObservationStats } from "./observation.js";
+import {
+  observeHistory,
+  shouldCompressHistory,
+  type ObservedHistory,
+  type ObservationStats,
+} from "./observation.js";
 import {
   consumeStreamEvent,
   createTurnResponse,
@@ -29,6 +34,13 @@ interface SessionContext {
 interface AgentLoopOptions {
   signal?: AbortSignal;
   runtime?: AgentRuntime;
+}
+
+interface LlmRequestLogInput {
+  context: SessionContext;
+  turn: number;
+  messageCount: number;
+  observation: ObservationStats;
 }
 
 export async function* runAgentLoop(
@@ -139,14 +151,9 @@ async function* emitLlmTurn(
   turn: number,
   options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, TurnResponse> {
-  const observed = observeHistory({
-    history: context.runtime.history.getMessages(),
-    store: context.runtime.observationStore,
-  });
-  if (observed.compressed) yield* emitCompressionEvents(turn, observed.stats);
-
+  const observed = yield* observeRuntimeHistory(context, turn, options.signal);
   const messages = buildMessages(context.systemPrompt, observed.messages);
-  logLlmRequest(context, turn, messages.length, observed.stats);
+  logLlmRequest({ context, turn, messageCount: messages.length, observation: observed.stats });
 
   const response = createTurnResponse();
   for await (const event of streamChat(createStreamChatOptions(context, messages, options))) {
@@ -159,20 +166,29 @@ async function* emitLlmTurn(
   return response;
 }
 
-function* emitCompressionEvents(
-  turn: number,
-  stats: ObservationStats,
-): Generator<AgentEvent> {
-  yield { type: "context_compression_start", turn };
-  yield { type: "context_compression_end", turn, stats };
-}
-
-function logLlmRequest(
+async function* observeRuntimeHistory(
   context: SessionContext,
   turn: number,
-  messageCount: number,
-  observation: ObservationStats,
-): void {
+  signal: AbortSignal | undefined,
+): AsyncGenerator<AgentEvent, ObservedHistory> {
+  const history = context.runtime.history.getMessages();
+  if (shouldCompressHistory(history)) {
+    yield { type: "context_compression_start", turn };
+    await yieldToUi();
+    throwIfAborted(signal);
+  }
+
+  const observed = observeHistory({ history, store: context.runtime.observationStore });
+  if (observed.compressed) yield { type: "context_compression_end", turn, stats: observed.stats };
+  return observed;
+}
+
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+function logLlmRequest(input: LlmRequestLogInput): void {
+  const { context, turn, messageCount, observation } = input;
   context.runtime.log("llm.request", {
     sessionId: context.sessionId,
     runId: context.runId,

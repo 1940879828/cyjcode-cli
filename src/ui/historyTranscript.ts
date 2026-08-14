@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../llm/types.js";
+import { isUserInputFocusMessage } from "../agent/userInputFocus.js";
 import { createAssistantTurn, finalizeAssistantTurn } from "./assistantTurn.js";
 import type { ChatEntry, TextChatEntry } from "./chatTypes.js";
 
@@ -26,6 +27,7 @@ function messageToEntry(
   message: ChatMessage,
   options: HistoryTranscriptOptions,
 ): ChatEntry | null {
+  if (isUserInputFocusMessage(message)) return null;
   if (message.role === "assistant") return assistantMessageToEntry(message, options);
   if (message.role === "tool") return textEntry("tool_result", message.content ?? "", options);
   if (message.role === "user" || message.role === "system") {

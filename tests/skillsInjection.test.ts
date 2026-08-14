@@ -12,6 +12,7 @@ import {
   resetDefaultSkillSessionState,
   type AgentHistoryStore,
 } from "../src/agent/runtime.js";
+import { createObservationStore } from "../src/agent/observationStore.js";
 import type { ChatMessage, ToolCall } from "../src/llm/types.js";
 import {
   createSkillManager,
@@ -226,6 +227,7 @@ function createTestRuntime(workspace: string): AgentRuntime {
     log: () => {},
     buildSystemPrompt: () => "system",
     skillManager,
+    observationStore: createObservationStore(),
   };
 }
 

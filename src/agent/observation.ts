@@ -1,6 +1,7 @@
 import { contentFingerprint } from "../utils/contentFingerprint.js";
 import type { ChatMessage, ToolCall } from "../llm/types.js";
 import type { ObservationMask, ObservationSource, ObservationStore } from "./observationStore.js";
+import { isUserInputFocusMessage } from "./userInputFocus.js";
 
 const RECENT_MESSAGE_COUNT = 10;
 const MESSAGE_COUNT_TRIGGER = 24;
@@ -32,16 +33,42 @@ interface MessageUnit {
   maskable: boolean;
 }
 
-export function observeHistory(input: ObserveHistoryInput): ObservedHistory {
-  const units = buildMessageUnits(input.history);
-  const recentStart = findRecentUnitStart(units);
-  const maskableUnits = units.slice(0, recentStart).filter((unit) => unit.maskable);
-  if (!shouldCompress(input.history, maskableUnits)) return uncompressedHistory(input.history);
+interface ObservationPlan {
+  units: MessageUnit[];
+  recentStart: number;
+  oldUnits: MessageUnit[];
+  budgetMode: boolean;
+}
 
-  const messages = units.flatMap((unit, index) =>
-    index < recentStart ? observeOldUnit(unit, input.store) : unit.messages
-  );
-  return observedHistory(input.history, messages, maskableUnits.length);
+interface ObservedUnits {
+  messages: ChatMessage[];
+  maskCount: number;
+}
+
+export function shouldCompressHistory(history: ChatMessage[]): boolean {
+  const plan = createObservationPlan(history);
+  return shouldCompress(history, plan.oldUnits, plan.budgetMode);
+}
+
+export function observeHistory(input: ObserveHistoryInput): ObservedHistory {
+  const plan = createObservationPlan(input.history);
+  if (!shouldCompress(input.history, plan.oldUnits, plan.budgetMode)) {
+    return uncompressedHistory(input.history);
+  }
+
+  const observed = observeUnits(plan, input.store);
+  return observedHistory(input.history, observed.messages, observed.maskCount);
+}
+
+function createObservationPlan(history: ChatMessage[]): ObservationPlan {
+  const units = buildMessageUnits(history);
+  const recentStart = findRecentUnitStart(units);
+  return {
+    units,
+    recentStart,
+    oldUnits: units.slice(0, recentStart),
+    budgetMode: estimateMessagesTokens(history) > TARGET_TOKEN_BUDGET,
+  };
 }
 
 function buildMessageUnits(messages: ChatMessage[]): MessageUnit[] {
@@ -49,7 +76,7 @@ function buildMessageUnits(messages: ChatMessage[]): MessageUnit[] {
   for (let index = 0; index < messages.length; index++) {
     const message = messages[index]!;
     if (message.role !== "assistant" || !message.tool_calls?.length) {
-      units.push({ messages: [message], maskable: message.role === "tool" });
+      units.push({ messages: [message], maskable: isMaskableSingleMessage(message) });
       continue;
     }
     const group = readToolGroup(messages, index, message.tool_calls);
@@ -57,6 +84,10 @@ function buildMessageUnits(messages: ChatMessage[]): MessageUnit[] {
     index = group.endIndex;
   }
   return units;
+}
+
+function isMaskableSingleMessage(message: ChatMessage): boolean {
+  return message.role === "tool" || isUserInputFocusMessage(message);
 }
 
 function readToolGroup(
@@ -88,25 +119,48 @@ function findRecentUnitStart(units: MessageUnit[]): number {
 
 function shouldCompress(
   history: ChatMessage[],
-  maskableUnits: MessageUnit[],
+  oldUnits: MessageUnit[],
+  budgetMode: boolean,
 ): boolean {
-  if (maskableUnits.length === 0) return false;
-  if (history.length > MESSAGE_COUNT_TRIGGER) return true;
-  if (estimateMessagesTokens(history) > TOKEN_TRIGGER) return true;
-  return maskableUnits.some(hasLargeToolResult);
+  if (oldUnits.length === 0) return false;
+  if (budgetMode) return true;
+  if (history.length > MESSAGE_COUNT_TRIGGER) return oldUnits.some(canMaskUnit);
+  if (estimateMessagesTokens(history) > TOKEN_TRIGGER) return oldUnits.some(canMaskUnit);
+  return oldUnits.some(canMaskUnit);
 }
 
-function hasLargeToolResult(unit: MessageUnit): boolean {
-  return unit.messages.some((message) =>
-    message.role === "tool" && contentText(message).length > LARGE_TOOL_RESULT_CHARS
+function observeUnits(plan: ObservationPlan, store: ObservationStore): ObservedUnits {
+  const messages = plan.units.flatMap((unit, index) =>
+    index < plan.recentStart ? observeOldUnit(unit, store, plan.budgetMode) : unit.messages
   );
+  return { messages, maskCount: messages.filter(isMaskMessage).length };
 }
 
-function observeOldUnit(unit: MessageUnit, store: ObservationStore): ChatMessage[] {
-  if (!unit.maskable) return unit.messages;
+function observeOldUnit(
+  unit: MessageUnit,
+  store: ObservationStore,
+  budgetMode: boolean,
+): ChatMessage[] {
+  if (!shouldMaskUnit(unit, budgetMode)) return unit.messages;
   const mask = createMask(unit);
   store.put(mask);
-  return [{ role: "assistant", content: formatMaskPrompt(mask) }];
+  return [{ role: getMaskRole(unit), content: formatMaskPrompt(mask) }];
+}
+
+function shouldMaskUnit(unit: MessageUnit, budgetMode: boolean): boolean {
+  return budgetMode || canMaskUnit(unit);
+}
+
+function canMaskUnit(unit: MessageUnit): boolean {
+  return unit.maskable || hasLargeText(unit);
+}
+
+function hasLargeText(unit: MessageUnit): boolean {
+  return unit.messages.some((message) => contentText(message).length > LARGE_TOOL_RESULT_CHARS);
+}
+
+function isMaskMessage(message: ChatMessage): boolean {
+  return typeof message.content === "string" && message.content.startsWith("[历史");
 }
 
 function createMask(unit: MessageUnit): ObservationMask {
@@ -124,7 +178,12 @@ function createMask(unit: MessageUnit): ObservationMask {
 
 function getUnitToolName(unit: MessageUnit): string {
   const assistant = unit.messages.find((message) => message.tool_calls?.length);
-  return assistant?.tool_calls?.[0]?.function.name ?? unit.messages[0]?.name ?? "unknown";
+  return assistant?.tool_calls?.[0]?.function.name ?? `${unit.messages[0]?.role ?? "unknown"}_message`;
+}
+
+function getMaskRole(unit: MessageUnit): ChatMessage["role"] {
+  const role = unit.messages[0]?.role;
+  return role === "system" || role === "user" ? role : "assistant";
 }
 
 function formatOriginalText(messages: ChatMessage[]): string {
@@ -175,11 +234,17 @@ function isFileSource(value: unknown): value is { filePath: string; contentFinge
 
 function formatMaskPrompt(mask: ObservationMask): string {
   return [
-    `[历史工具结果已遮罩 ${mask.id}] ${mask.toolName}。`,
+    `[${getMaskPromptTitle(mask)} ${mask.id}] ${mask.toolName}。`,
     `摘要: ${mask.summary}`,
     `需要原文时先调用 recall_history({"maskId":"${mask.id}"});`,
     "fresh 可当当前事实，stale/unknown 时重新观测。",
   ].join(" ");
+}
+
+function getMaskPromptTitle(mask: ObservationMask): string {
+  return mask.source.kind === "file" || !mask.toolName.endsWith("_message")
+    ? "历史工具结果已遮罩"
+    : "历史内容已遮罩";
 }
 
 function summarizeText(text: string): string {
