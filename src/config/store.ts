@@ -21,6 +21,7 @@ export interface AppConfig {
 const CONFIG_DIR = path.join(os.homedir(), APP.configDirName);
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const LEGACY_DIR = path.join(os.homedir(), LEGACY_DIR_NAME);
+const PRIVATE_FILE_MODE = 0o600;
 
 // ─── 默认值（唯一配置源） ──────────────────────────
 
@@ -52,6 +53,7 @@ function migrateLegacyConfig(): void {
       fs.copyFileSync(source, target);
     }
   }
+  protectConfigFile();
 }
 
 // 检查是否有配置文件
@@ -65,6 +67,7 @@ export function getConfig(): AppConfig {
   if (!hasConfig()) {
     return { ...DEFAULT_CONFIG };
   }
+  protectConfigFile();
   const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
   const parsed = JSON.parse(raw) as Partial<AppConfig>;
   return normalizeConfig({ ...DEFAULT_CONFIG, ...parsed });
@@ -73,7 +76,11 @@ export function getConfig(): AppConfig {
 // 写入配置文件
 export function setConfig(config: AppConfig): void {
   ensureDir();
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
+    encoding: "utf-8",
+    mode: PRIVATE_FILE_MODE,
+  });
+  protectConfigFile();
 }
 
 // 读取路径
@@ -91,4 +98,9 @@ function normalizeConfig(config: AppConfig): AppConfig {
     return config;
   }
   return { ...config, reasoningEffort: DEFAULT_CONFIG.reasoningEffort };
+}
+
+function protectConfigFile(): void {
+  if (!fs.existsSync(CONFIG_FILE)) return;
+  fs.chmodSync(CONFIG_FILE, PRIVATE_FILE_MODE);
 }
