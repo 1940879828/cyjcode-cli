@@ -6,6 +6,7 @@ import type { AgentEvent, AskUserQuestionItem } from "./types.js";
 import { toErrorMessage } from "./errors.js";
 import type { AgentHistoryStore } from "./runtime.js";
 import type { SkillManager } from "../skills/index.js";
+import type { ObservationStore } from "./observationStore.js";
 
 interface ToolExecutionContext {
   sessionId: string;
@@ -15,6 +16,7 @@ interface ToolExecutionContext {
   history: AgentHistoryStore;
   workspaceRoot: string;
   skillManager?: SkillManager;
+  observationStore?: ObservationStore;
 }
 
 export interface ToolExecutionBatch {
@@ -24,6 +26,7 @@ export interface ToolExecutionBatch {
   history: AgentHistoryStore;
   workspaceRoot: string;
   skillManager?: SkillManager;
+  observationStore?: ObservationStore;
 }
 
 interface ToolBatchState {
@@ -98,9 +101,10 @@ async function runTool(
     return await tool.execute(parsedArgs, {
       sessionId: context.sessionId,
       history: context.history,
-      workspaceRoot: context.workspaceRoot,
-      skillManager: context.skillManager,
-    });
+    workspaceRoot: context.workspaceRoot,
+    skillManager: context.skillManager,
+    observationStore: context.observationStore,
+  });
   } catch (error) {
     return { success: false, error: toErrorMessage(error) };
   }
@@ -185,12 +189,14 @@ function applyContextModifier(input: ToolExecutionBatch, result: ToolResult): To
     history: input.history,
     workspaceRoot: input.workspaceRoot,
     skillManager: input.skillManager,
+    observationStore: input.observationStore,
   });
   return {
     ...input,
     history: next.history,
     workspaceRoot: next.workspaceRoot,
     skillManager: next.skillManager,
+    observationStore: next.observationStore,
   };
 }
 

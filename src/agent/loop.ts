@@ -4,6 +4,7 @@ import { toolsToOpenAI } from "../tools/index.js";
 import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
 import type { AgentEvent } from "./types.js";
 import { buildMessages } from "./messageBuilder.js";
+import { observeHistory, type ObservationStats } from "./observation.js";
 import {
   consumeStreamEvent,
   createTurnResponse,
@@ -111,6 +112,7 @@ function createToolExecutionBatch(
     history: context.runtime.history,
     workspaceRoot: context.runtime.workspaceRoot,
     skillManager: context.runtime.skillManager,
+    observationStore: context.runtime.observationStore,
   };
 }
 
@@ -137,8 +139,14 @@ async function* emitLlmTurn(
   turn: number,
   options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, TurnResponse> {
-  const messages = buildMessages(context.systemPrompt, context.runtime.history.getMessages());
-  logLlmRequest(context, turn, messages.length);
+  const observed = observeHistory({
+    history: context.runtime.history.getMessages(),
+    store: context.runtime.observationStore,
+  });
+  if (observed.compressed) yield* emitCompressionEvents(turn, observed.stats);
+
+  const messages = buildMessages(context.systemPrompt, observed.messages);
+  logLlmRequest(context, turn, messages.length, observed.stats);
 
   const response = createTurnResponse();
   for await (const event of streamChat(createStreamChatOptions(context, messages, options))) {
@@ -151,12 +159,26 @@ async function* emitLlmTurn(
   return response;
 }
 
-function logLlmRequest(context: SessionContext, turn: number, messageCount: number): void {
+function* emitCompressionEvents(
+  turn: number,
+  stats: ObservationStats,
+): Generator<AgentEvent> {
+  yield { type: "context_compression_start", turn };
+  yield { type: "context_compression_end", turn, stats };
+}
+
+function logLlmRequest(
+  context: SessionContext,
+  turn: number,
+  messageCount: number,
+  observation: ObservationStats,
+): void {
   context.runtime.log("llm.request", {
     sessionId: context.sessionId,
     runId: context.runId,
     turn,
     messageCount,
+    observation,
   });
 }
 

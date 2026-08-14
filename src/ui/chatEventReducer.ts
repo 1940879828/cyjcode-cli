@@ -25,6 +25,8 @@ interface ReplacePendingToolPartInput {
   part: AssistantTurnPart;
 }
 
+export const CONTEXT_COMPRESSION_MESSAGE = "自动压缩中……";
+
 export interface ChatEventSession {
   reasoning: string;
   assistantTurn: AssistantTurn | null;
@@ -83,6 +85,10 @@ const AGENT_EVENT_HANDLERS: {
   usage: (event, _session, handlers) => handlers.setContextUsage({ status: "ready", usage: event.usage }),
   done: (event, session, handlers) => finalizeTurn(event.fullText, session, handlers),
   error: (event, session, handlers) => appendError(event.error, session, handlers),
+  context_compression_start: (_event, _session, handlers) =>
+    handlers.setStreamingReasoning(CONTEXT_COMPRESSION_MESSAGE),
+  context_compression_end: (_event, session, handlers) =>
+    handlers.setStreamingReasoning(session.reasoning),
   turn_start: ignoreAgentEvent,
   turn_end: ignoreAgentEvent,
   user_message: ignoreAgentEvent,
@@ -238,6 +244,7 @@ function appendError(
   session: ChatEventSession,
   handlers: ChatEventHandlers,
 ): void {
+  handlers.setStreamingReasoning("");
   if (!session.assistantTurn || !hasAssistantTurnContent(session.assistantTurn)) {
     appendStandaloneError(error, handlers);
     return;

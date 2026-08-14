@@ -1,6 +1,7 @@
 import type { ChatMessage } from "../llm/types.js";
 import { createSkillManager, type SkillManager } from "../skills/index.js";
 import { log } from "../utils/logger.js";
+import { createObservationStore, type ObservationStore } from "./observationStore.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { defaultSessionStore, type SessionInfo } from "./sessionStore.js";
 
@@ -18,6 +19,7 @@ export interface AgentRuntime {
   log: typeof log;
   buildSystemPrompt: () => string;
   skillManager: SkillManager;
+  observationStore: ObservationStore;
 }
 
 export interface DefaultAgentRuntimeOptions {
@@ -40,6 +42,7 @@ export function createDefaultAgentRuntime(options: DefaultAgentRuntimeOptions = 
     log,
     buildSystemPrompt: () => buildSystemPrompt(workspaceRoot, skillManager.list()),
     skillManager,
+    observationStore: createObservationStore(),
   };
 }
 
@@ -52,6 +55,7 @@ export function createTransientAgentRuntime(workspaceRoot = process.cwd()): Agen
     log,
     buildSystemPrompt: () => buildSystemPrompt(workspaceRoot, skillManager.list()),
     skillManager,
+    observationStore: createObservationStore(),
   };
 }
 

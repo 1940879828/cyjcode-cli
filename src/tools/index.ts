@@ -8,8 +8,20 @@ import edit from "./edit.js";
 import shell from "./shell.js";
 import skill from "./skill.js";
 import askUserQuestion from "./askUserQuestion.js";
+import recallHistory from "./recallHistory.js";
 
-export const allTools: Tool[] = [listDir, search, read, write, edit, rename, shell, skill, askUserQuestion];
+export const allTools: Tool[] = [
+  listDir,
+  search,
+  read,
+  write,
+  edit,
+  rename,
+  shell,
+  skill,
+  askUserQuestion,
+  recallHistory,
+];
 
 const toolMap = new Map<string, Tool>();
 for (const tool of allTools) {

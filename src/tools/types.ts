@@ -1,4 +1,5 @@
 import type { AgentHistoryStore } from "../agent/runtime.js";
+import type { ObservationStore } from "../agent/observationStore.js";
 import type { ChatMessage } from "../llm/types.js";
 import type { SkillManager } from "../skills/index.js";
 
@@ -17,6 +18,7 @@ export interface ToolExecuteContext {
   history: AgentHistoryStore;
   workspaceRoot: string;
   skillManager?: SkillManager;
+  observationStore?: ObservationStore;
 }
 
 export interface Tool {

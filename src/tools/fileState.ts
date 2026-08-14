@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { contentFingerprint } from "../utils/contentFingerprint.js";
 export { resolveInsideWorkspace } from "./workspacePath.js";
 
 type LineEndings = "LF" | "CRLF";
@@ -6,6 +7,7 @@ type LineEndings = "LF" | "CRLF";
 export interface FileSnapshot {
   filePath: string;
   content: string;
+  contentFingerprint: string;
   timestamp: number;
   lineEndings: LineEndings;
 }
@@ -16,12 +18,14 @@ export interface FileSnippet {
   startLine: number;
   endLine: number;
   content: string;
+  contentFingerprint: string;
   timestamp: number;
   lineEndings: LineEndings;
 }
 
 export interface TextFileMetadata {
   content: string;
+  contentFingerprint: string;
   timestamp: number;
   lineEndings: LineEndings;
 }
@@ -43,6 +47,7 @@ export function readTextFileMetadata(filePath: string): TextFileMetadata {
   const stat = fs.statSync(filePath);
   return {
     content,
+    contentFingerprint: contentFingerprint(content),
     timestamp: stat.mtimeMs,
     lineEndings: content.includes("\r\n") ? "CRLF" : "LF",
   };
@@ -52,6 +57,7 @@ export function rememberFileSnapshot(filePath: string, metadata: TextFileMetadat
   fileSnapshots.set(filePath, {
     filePath,
     content: metadata.content,
+    contentFingerprint: metadata.contentFingerprint,
     timestamp: metadata.timestamp,
     lineEndings: metadata.lineEndings,
   });
@@ -64,6 +70,7 @@ export function createSnippet(input: CreateSnippetInput): FileSnippet {
     startLine: input.startLine,
     endLine: input.endLine,
     content: input.content,
+    contentFingerprint: input.metadata.contentFingerprint,
     timestamp: input.metadata.timestamp,
     lineEndings: input.metadata.lineEndings,
   };

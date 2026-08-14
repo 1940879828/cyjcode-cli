@@ -125,12 +125,14 @@ function buildSnippetMetadata(snippet: {
   filePath: string;
   startLine: number;
   endLine: number;
+  contentFingerprint: string;
 }): Record<string, unknown> {
   return {
     id: snippet.id,
     filePath: snippet.filePath,
     startLine: snippet.startLine,
     endLine: snippet.endLine,
+    contentFingerprint: snippet.contentFingerprint,
   };
 }
 

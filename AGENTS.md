@@ -13,6 +13,10 @@
 - `src/tools/`：提供给 Agent 使用的文件读写、搜索、重命名和目录浏览工具。
 - `src/config/`：本地配置存储。
 - `src/devmock/`：开发录制与 mock 回放，只通过开发脚本使用，不进入生产构建。
+- `src/skills/`：Skill 系统的注册、加载、搜索、会话管理与提示词注入。
+- `src/utils/`：通用工具，如 `jsonFile`、`logger`。
+- `bin/`：npm bin 入口 `check-node-version.mjs`，启动前校验 Node 版本。
+- `scripts/`：构建与发布脚本，如 `prepare-package.js`。
 - `src/ui/components/InputBox/`：其中 `inputBoxModel.ts` 为输入框纯函数核心（command 翻译 + reducer + 视图选择器），`InputBox.tsx` 只做装配、命令分发与提交回调消费，`textEditor.ts` 提供 `TextCursor` 纯计算原语。
 - `tests/`：单元/集成测试，如 `tests/inputBoxModel.test.ts`（输入框核心逻辑）。
 - `docs/`：需求、迭代计划和运维文档。
@@ -103,6 +107,9 @@ npm run dev:babel    # Babel watch + React Compiler + Node watch
 npm run typecheck    # TypeScript 类型检查
 npm run build        # 类型检查、Babel 编译并打包
 npm run test:inputbox# 运行输入框核心单元测试
+npm run test:shell   # 运行 shell 工具单元测试
+npm run test:style   # 运行代码风格单元测试
+npm run test:tools   # 运行 tools 系列单元测试（edit/search/workspacePath/shell）
 npm run devrecord    # 开发入口录制默认会话
 npm run devmock      # 开发入口回放 mockdata/default.json
 npm run typecheck:test # 测试文件 TypeScript 类型检查
@@ -110,6 +117,21 @@ npm run test:all     # 运行全部测试
 ```
 
 完成代码修改后，至少运行 `npm run typecheck`；修改 `src/ui/components/InputBox/inputBoxModel.ts` 还需运行 `npm run test:inputbox`；涉及构建流程、入口或打包行为的修改还要运行 `npm run build`。如果测试或验证因环境、凭据或外部服务不可用而跳过，应在交付说明中明确写出。
+
+## 本机环境与工具
+
+本机已验证的稳定环境（仅记录对本项目有用的信息）：
+
+- OS：Windows；Shell：PowerShell（会话需按「代码风格守则」设置为 UTF-8）。
+- Node.js `v22.22.2`；npm `10.9.7`（`engines` 要求 Node >= 22）。
+- git `2.54.0.windows.1`；gh `2.93.0`（GitHub CLI，用于 PR 与仓库操作）。
+- FFmpeg `8.1.2`（full build），可用于音视频/媒体处理。
+
+## 安全与敏感信息
+
+- API key、用户配置、会话记录和本地 mock 数据不得写入源码、日志或提交内容。
+- 默认不提交 `node_modules`、`.babel-out/`、`dist/`、`mockdata/` 或包含凭据的文件。
+- 提交前用 `git diff` 确认未混入凭据或本地会话数据。
 
 ## Git 注意事项
 

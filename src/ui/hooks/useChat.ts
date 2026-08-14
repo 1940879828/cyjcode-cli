@@ -22,6 +22,7 @@ import {
 import type { AssistantTurn } from "../assistantTurn.js";
 import type { ContextUsageState } from "../contextUsage.js";
 import {
+  CONTEXT_COMPRESSION_MESSAGE,
   consumeChatEvent,
   createChatEventSession,
   markLoadingContextUsageError,
@@ -311,7 +312,8 @@ function createInterruptedEntries(refs: ChatRuntimeRefs): ChatEntry[] {
 }
 
 function createInterruptedThinkingEntries(reasoning: string): ChatEntry[] {
-  return reasoning ? [makeEntry("thinking", reasoning)] : [];
+  if (!reasoning || reasoning === CONTEXT_COMPRESSION_MESSAGE) return [];
+  return [makeEntry("thinking", reasoning)];
 }
 
 function createInterruptedAssistantEntries(turn: AssistantTurn | null): ChatEntry[] {

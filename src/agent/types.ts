@@ -1,5 +1,6 @@
 import type { ToolResult } from "../tools/types.js";
 import type { TokenUsage, ToolCallDelta } from "../llm/types.js";
+import type { ObservationStats } from "./observation.js";
 
 export interface AskUserQuestionOption {
   label: string;
@@ -71,6 +72,17 @@ export type AgentEvent =
       /** 新一轮思考开始，turn 从 1 递增，用于 UI 展示当前在"第几轮" */
       type: "turn_start";
       turn: number;
+    }
+  | {
+      /** 正在把完整历史投影成更短的模型观测上下文 */
+      type: "context_compression_start";
+      turn: number;
+    }
+  | {
+      /** 上下文观测压缩完成，随后进入 LLM 请求 */
+      type: "context_compression_end";
+      turn: number;
+      stats: ObservationStats;
     }
   | {
       /** 当前轮次结束，本轮内可能已完成零个或多个 tool_call */
