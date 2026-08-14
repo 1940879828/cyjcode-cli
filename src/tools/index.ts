@@ -7,8 +7,9 @@ import rename from "./rename.js";
 import edit from "./edit.js";
 import shell from "./shell.js";
 import skill from "./skill.js";
+import askUserQuestion from "./askUserQuestion.js";
 
-export const allTools: Tool[] = [listDir, search, read, write, edit, rename, shell, skill];
+export const allTools: Tool[] = [listDir, search, read, write, edit, rename, shell, skill, askUserQuestion];
 
 const toolMap = new Map<string, Tool>();
 for (const tool of allTools) {

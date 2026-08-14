@@ -2,7 +2,7 @@ import type { ChatMessage, ToolCall } from "../llm/types.js";
 import { getTool } from "../tools/index.js";
 import type { ToolResult } from "../tools/types.js";
 import { log } from "../utils/logger.js";
-import type { AgentEvent } from "./types.js";
+import type { AgentEvent, AskUserQuestionItem } from "./types.js";
 import { toErrorMessage } from "./errors.js";
 import type { AgentHistoryStore } from "./runtime.js";
 import type { SkillManager } from "../skills/index.js";
@@ -26,21 +26,40 @@ export interface ToolExecutionBatch {
   skillManager?: SkillManager;
 }
 
-export async function* executeToolCalls(input: ToolExecutionBatch): AsyncGenerator<AgentEvent> {
-  let currentBatch = input;
-  const followUpMessages: ChatMessage[] = [];
+interface ToolBatchState {
+  currentBatch: ToolExecutionBatch;
+  followUpMessages: ChatMessage[];
+}
+
+export async function* executeToolCalls(input: ToolExecutionBatch): AsyncGenerator<AgentEvent, boolean> {
+  const state: ToolBatchState = { currentBatch: input, followUpMessages: [] };
   for (const toolCall of input.toolCalls) {
     const parsedArgs = parseToolArgs(toolCall.function.arguments);
     if (!parsedArgs) {
-      yield* emitToolParseError(createToolContext(currentBatch, toolCall, {}));
+      yield* emitToolParseError(createToolContext(state.currentBatch, toolCall, {}));
       continue;
     }
-    const result = yield* emitToolExecution(createToolContext(currentBatch, toolCall, parsedArgs));
-    if (!result) continue;
-    followUpMessages.push(...validFollowUpMessages(result));
-    currentBatch = applyContextModifier(currentBatch, result);
+    const context = createToolContext(state.currentBatch, toolCall, parsedArgs);
+    const result = yield* emitToolExecution(context);
+    if (yield* updateToolBatchState({ input, state, toolCall, result })) return true;
   }
-  rememberFollowUpMessages(input.history, followUpMessages);
+  rememberFollowUpMessages(input.history, state.followUpMessages);
+  return false;
+}
+
+function* updateToolBatchState(input: {
+  input: ToolExecutionBatch;
+  state: ToolBatchState;
+  toolCall: ToolCall;
+  result: ToolResult | undefined;
+}): Generator<AgentEvent, boolean> {
+  if (!input.result) return false;
+  input.state.followUpMessages.push(...validFollowUpMessages(input.result));
+  input.state.currentBatch = applyContextModifier(input.state.currentBatch, input.result);
+  if (!input.result.awaitUserResponse) return false;
+  rememberFollowUpMessages(input.input.history, input.state.followUpMessages);
+  yield { type: "await_user_input", callId: input.toolCall.id, questions: getAwaitedQuestions(input.result) };
+  return true;
 }
 
 function createToolContext(
@@ -124,7 +143,22 @@ function toPublicToolResult(result: ToolResult): ToolResult {
     data: result.data,
     error: result.error,
     metadata: result.metadata,
+    awaitUserResponse: result.awaitUserResponse,
   };
+}
+
+function getAwaitedQuestions(result: ToolResult): AskUserQuestionItem[] {
+  const metadata = result.metadata;
+  if (!metadata || metadata.kind !== "ask_user_question") return [];
+  const questions = metadata.questions;
+  return Array.isArray(questions) ? questions.filter(isAskUserQuestionItem) : [];
+}
+
+function isAskUserQuestionItem(value: unknown): value is AskUserQuestionItem {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const question = (value as { question?: unknown }).question;
+  const options = (value as { options?: unknown }).options;
+  return typeof question === "string" && question.trim() !== "" && Array.isArray(options);
 }
 
 function rememberFollowUpMessages(history: AgentHistoryStore, messages: ChatMessage[]): void {

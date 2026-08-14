@@ -1,6 +1,17 @@
 import type { ToolResult } from "../tools/types.js";
 import type { TokenUsage } from "../llm/types.js";
 
+export interface AskUserQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface AskUserQuestionItem {
+  question: string;
+  options: AskUserQuestionOption[];
+  multiSelect?: boolean;
+}
+
 /**
  * Agent 运行期间产出的所有事件，调用方通过 for await...of 逐事件消费。
  *
@@ -39,6 +50,12 @@ export type AgentEvent =
       callId: string;        // 对应 tool_call 的 id
       name: string;          // 工具名
       result: ToolResult;    // 包含 success 标记 + data 或 error
+    }
+  | {
+      /** 工具请求暂停并等待用户回答 */
+      type: "await_user_input";
+      callId: string;
+      questions: AskUserQuestionItem[];
     }
   | {
       /** 本轮 API 返回的真实 token 用量，promptTokens 表示上下文输入占用 */

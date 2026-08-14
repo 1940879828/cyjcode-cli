@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { AgentEvent } from "../agent/types.js";
+import type { AskUserQuestionItem } from "../agent/types.js";
 import {
   appendAssistantPart,
   appendAssistantTextDelta,
@@ -29,6 +30,12 @@ export interface ChatEventHandlers {
   setStreamingReasoning: (value: string) => void;
   setStreamingAssistantTurn: (value: AssistantTurn | null) => void;
   setContextUsage: Dispatch<SetStateAction<ContextUsageState>>;
+  setPendingQuestion: (value: PendingAskUserQuestion | null) => void;
+}
+
+export interface PendingAskUserQuestion {
+  callId: string;
+  questions: AskUserQuestionItem[];
 }
 
 export function createChatEventSession(): ChatEventSession {
@@ -59,6 +66,7 @@ const AGENT_EVENT_HANDLERS: {
   text_delta: (event, session, handlers) => appendAssistantText(event.content, session, handlers),
   tool_call: rememberToolCall,
   tool_result: appendToolResultSummary,
+  await_user_input: finishAwaitUserInput,
   usage: (event, _session, handlers) => handlers.setContextUsage({ status: "ready", usage: event.usage }),
   done: (event, session, handlers) => finalizeTurn(event.fullText, session, handlers),
   error: (event, session, handlers) => appendError(event.error, session, handlers),
@@ -158,6 +166,25 @@ function finalizeTurn(
   handlers.append(session.assistantTurn);
   session.assistantTurn = null;
   handlers.setStreamingAssistantTurn(null);
+}
+
+function finishAwaitUserInput(
+  event: Extract<AgentEvent, { type: "await_user_input" }>,
+  session: ChatEventSession,
+  handlers: ChatEventHandlers,
+): void {
+  handlers.setContextUsage((current) =>
+    current.status === "loading" ? { status: "idle" } : current,
+  );
+  handlers.setStreamingReasoning("");
+  if (session.reasoning) handlers.append(handlers.makeEntry("thinking", session.reasoning));
+  if (session.assistantTurn && hasAssistantTurnContent(session.assistantTurn)) {
+    handlers.append(finalizeAssistantTurn(session.assistantTurn, handlers.nextId(), ""));
+  }
+  session.reasoning = "";
+  session.assistantTurn = null;
+  handlers.setStreamingAssistantTurn(null);
+  handlers.setPendingQuestion({ callId: event.callId, questions: event.questions });
 }
 
 function appendError(

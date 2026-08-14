@@ -91,10 +91,11 @@ async function* handleTurnResponse(
     return true;
   }
 
-  addAssistantToolRequest(context, response);
-  yield* executeToolCalls(createToolExecutionBatch(context, turn, response.toolCalls));
+  const toolCalls = selectExecutableToolCalls(response.toolCalls);
+  addAssistantToolRequest(context, response, toolCalls);
+  const waitingForUser = yield* executeToolCalls(createToolExecutionBatch(context, turn, toolCalls));
   yield { type: "turn_end", turn };
-  return false;
+  return waitingForUser;
 }
 
 function createToolExecutionBatch(
@@ -176,11 +177,16 @@ async function* finishTextResponse(
   context.runtime.log("session.end", { sessionId: context.sessionId, status: "success", totalTurns: turn });
 }
 
-function addAssistantToolRequest(context: SessionContext, response: TurnResponse): void {
+export function selectExecutableToolCalls(toolCalls: ToolCall[]): ToolCall[] {
+  const questionIndex = toolCalls.findIndex((toolCall) => toolCall.function.name === "AskUserQuestion");
+  return questionIndex === -1 ? toolCalls : toolCalls.slice(0, questionIndex + 1);
+}
+
+function addAssistantToolRequest(context: SessionContext, response: TurnResponse, toolCalls: ToolCall[]): void {
   context.runtime.history.addMessage({
     role: "assistant",
     content: response.fullText || null,
-    tool_calls: response.toolCalls ?? undefined,
+    tool_calls: toolCalls,
   });
 }
 

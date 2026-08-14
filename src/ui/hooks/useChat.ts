@@ -20,6 +20,7 @@ import {
   createChatEventSession,
   markLoadingContextUsageError,
   type ChatEventHandlers,
+  type PendingAskUserQuestion,
 } from "../chatEventReducer.js";
 import type { ChatEntry, TextChatEntry } from "../chatTypes.js";
 export type { ChatEntry, TextChatEntry, ToolCallEntry, ToolResultEntry } from "../chatTypes.js";
@@ -57,6 +58,7 @@ interface ChatStateSetters {
   setStreamingReasoning: Dispatch<SetStateAction<string>>;
   setStreamingAssistantTurn: Dispatch<SetStateAction<AssistantTurn | null>>;
   setContextUsage: Dispatch<SetStateAction<ContextUsageState>>;
+  setPendingQuestion: Dispatch<SetStateAction<PendingAskUserQuestion | null>>;
 }
 
 interface StreamRunInput {
@@ -79,10 +81,54 @@ interface ChatRuntimeRefs {
   streamingAssistantTurnRef: MutableRefObject<AssistantTurn | null>;
 }
 
+interface ChatState {
+  entries: ChatEntry[];
+  isStreaming: boolean;
+  streamingReasoning: string;
+  streamingAssistantTurn: AssistantTurn | null;
+  contextUsage: ContextUsageState;
+  pendingQuestion: PendingAskUserQuestion | null;
+  setters: ChatStateSetters;
+  append: (entry: ChatEntry) => void;
+  setEntries: Dispatch<SetStateAction<ChatEntry[]>>;
+}
+
 const INTERRUPTED_MESSAGE = "对话已中断";
 
 export function useChat(options: UseChatOptions = {}) {
   const agentRunner = options.agentRunner ?? runAgentLoop;
+  const state = useChatState();
+  const runtimeRefs = useChatRefs(state.streamingReasoning, state.streamingAssistantTurn);
+  const sendMessage = createSendMessage({
+    agentRunner,
+    append: state.append,
+    setters: state.setters,
+    isStreaming: state.isStreaming,
+    runtimeRefs,
+  });
+  const interrupt = createInterrupt(runtimeRefs, state.setters, state.append);
+  const clearChat = createClearChat(state.setEntries, state.setters);
+  const appendSystemMessage = (content: string) => state.append(makeEntry("system", content));
+  const submitQuestionAnswers = createSubmitQuestionAnswers(state.setters.setPendingQuestion, sendMessage);
+  const dismissQuestion = () => state.setters.setPendingQuestion(null);
+
+  return {
+    entries: state.entries,
+    isStreaming: state.isStreaming,
+    streamingAssistantTurn: state.streamingAssistantTurn,
+    streamingReasoning: state.streamingReasoning,
+    contextUsage: state.contextUsage,
+    pendingQuestion: state.pendingQuestion,
+    sendMessage,
+    submitQuestionAnswers,
+    dismissQuestion,
+    interrupt,
+    clearChat,
+    appendSystemMessage,
+  };
+}
+
+function useChatState(): ChatState {
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingReasoning, setStreamingReasoning] = useState("");
@@ -90,46 +136,31 @@ export function useChat(options: UseChatOptions = {}) {
   const [contextUsage, setContextUsage] = useState<ContextUsageState>({
     status: "idle",
   });
+  const [pendingQuestion, setPendingQuestion] = useState<PendingAskUserQuestion | null>(null);
+  const append = (entry: ChatEntry) => {
+    setEntries((prev) => [...prev, entry]);
+  };
+  const setters = {
+    setIsStreaming,
+    setStreamingReasoning,
+    setStreamingAssistantTurn,
+    setContextUsage,
+    setPendingQuestion,
+  };
+  return { entries, isStreaming, streamingReasoning, streamingAssistantTurn, contextUsage, pendingQuestion, setters, append, setEntries };
+}
+
+function useChatRefs(
+  streamingReasoning: string,
+  streamingAssistantTurn: AssistantTurn | null,
+): ChatRuntimeRefs {
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeRunIdRef = useRef(0);
   const streamingReasoningRef = useRef(streamingReasoning);
   const streamingAssistantTurnRef = useRef(streamingAssistantTurn);
-
-  const append = (entry: ChatEntry) => {
-    setEntries((prev) => [...prev, entry]);
-  };
   streamingReasoningRef.current = streamingReasoning;
   streamingAssistantTurnRef.current = streamingAssistantTurn;
-  const setters = { setIsStreaming, setStreamingReasoning, setStreamingAssistantTurn, setContextUsage };
-  const runtimeRefs = {
-    abortControllerRef,
-    activeRunIdRef,
-    streamingReasoningRef,
-    streamingAssistantTurnRef,
-  };
-
-  const sendMessage = createSendMessage({
-    agentRunner,
-    append,
-    setters,
-    isStreaming,
-    runtimeRefs,
-  });
-  const interrupt = createInterrupt(runtimeRefs, setters, append);
-  const clearChat = createClearChat(setEntries, setters);
-  const appendSystemMessage = (content: string) => append(makeEntry("system", content));
-
-  return {
-    entries,
-    isStreaming,
-    streamingAssistantTurn,
-    streamingReasoning,
-    contextUsage,
-    sendMessage,
-    interrupt,
-    clearChat,
-    appendSystemMessage,
-  };
+  return { abortControllerRef, activeRunIdRef, streamingReasoningRef, streamingAssistantTurnRef };
 }
 
 function createSendMessage(input: {
@@ -200,6 +231,7 @@ function createInterrupt(
     interruptedEntries.forEach(append);
     finishStreamingMessage(setters);
     setters.setContextUsage({ status: "idle" });
+    setters.setPendingQuestion(null);
   };
 }
 
@@ -240,7 +272,29 @@ function createClearChat(
     resetDefaultSkillSessionState();
     setters.setStreamingAssistantTurn(null);
     setters.setContextUsage({ status: "idle" });
+    setters.setPendingQuestion(null);
   };
+}
+
+function createSubmitQuestionAnswers(
+  setPendingQuestion: Dispatch<SetStateAction<PendingAskUserQuestion | null>>,
+  sendMessage: (text: string) => Promise<void>,
+): (answers: Record<string, string>) => Promise<void> {
+  return async (answers) => {
+    setPendingQuestion(null);
+    await sendMessage(formatAskUserQuestionAnswers(answers));
+  };
+}
+
+function formatAskUserQuestionAnswers(answers: Record<string, string>): string {
+  const answerText = Object.entries(answers)
+    .map(([question, answer]) => `"${escapeAnswerPart(question)}"="${escapeAnswerPart(answer)}"`)
+    .join(", ");
+  return `User has answered your questions: ${answerText}. You can now continue with the user's answers in mind.`;
+}
+
+function escapeAnswerPart(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\s+/g, " ").trim();
 }
 
 function appendSendError(
@@ -269,6 +323,7 @@ function createEventHandlers(
     setStreamingReasoning: setters.setStreamingReasoning,
     setStreamingAssistantTurn: setters.setStreamingAssistantTurn,
     setContextUsage: setters.setContextUsage,
+    setPendingQuestion: setters.setPendingQuestion,
   };
 }
 

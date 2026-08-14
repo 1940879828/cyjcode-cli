@@ -15,6 +15,7 @@ import { useConfigurationState } from "./configurationState.js";
 import { ContextUsageFooter } from "./ContextUsageFooter.js";
 import { handleSlashCommand } from "./slashCommandRunner.js";
 import { selectInputTips } from "./inputTips.js";
+import AskUserQuestionPrompt from "./AskUserQuestionPrompt.js";
 
 interface AppProps {
   agentRunner?: AgentRunner;
@@ -33,6 +34,9 @@ interface AppRuntime {
   isExiting: boolean;
   exitStatusMessage: string | null;
   isStreaming: boolean;
+  pendingQuestion: ChatRuntime["pendingQuestion"];
+  submitQuestionAnswers: ChatRuntime["submitQuestionAnswers"];
+  dismissQuestion: ChatRuntime["dismissQuestion"];
   entries: ChatRuntime["entries"];
   contextUsage: ReturnType<typeof useChat>["contextUsage"];
   inputController: ReturnType<typeof useInputBoxController>;
@@ -67,7 +71,7 @@ function useAppRuntime(agentRunner: AgentRunner | undefined): AppRuntime {
     onSubmit: submission.handleSubmit,
     inputHistory: submission.inputHistory,
     inputColumns: layout.inputColumns,
-    disabled: configured !== true || chat.isStreaming,
+    disabled: configured !== true || chat.isStreaming || chat.pendingQuestion !== null,
     isExiting: exit.isExiting,
   });
   const config = configured === true ? getConfig() : null;
@@ -82,6 +86,9 @@ function useAppRuntime(agentRunner: AgentRunner | undefined): AppRuntime {
     isExiting: exit.isExiting,
     exitStatusMessage: exit.exitStatusMessage,
     isStreaming: chat.isStreaming,
+    pendingQuestion: chat.pendingQuestion,
+    submitQuestionAnswers: chat.submitQuestionAnswers,
+    dismissQuestion: chat.dismissQuestion,
     entries: chat.entries,
     contextUsage: chat.contextUsage,
     inputController,
@@ -148,9 +155,9 @@ function useAppInputRouter(input: {
   transcriptController: ReturnType<typeof useTranscriptViewportController>;
 }): void {
   useChatInputRouter({
-    enabled: input.configured === true && !input.exit.isExiting,
+    enabled: input.configured === true && !input.exit.isExiting && input.chat.pendingQuestion === null,
     mouseTrackingEnabled: input.configured === true && !input.exit.isExiting,
-    isStreaming: input.chat.isStreaming,
+    isStreaming: input.chat.isStreaming || input.chat.pendingQuestion !== null,
     isTranscriptPinnedToBottom: input.transcriptController.isPinnedToBottom,
     wheelRows: input.transcriptController.wheelRows,
     requestExit: input.exit.requestExit,
@@ -198,16 +205,24 @@ function AppContent({ runtime }: { runtime: AppRuntime }) {
       />
 
       <Box ref={runtime.layout.footerRef} flexDirection="column">
-        <InputBox
-          view={runtime.inputController.view}
-          screenWidth={runtime.layout.screenWidth}
-          inputColumns={runtime.layout.inputColumns}
-          maxVisibleLines={runtime.layout.maxVisibleInputLines}
-          disabled={runtime.isStreaming}
-          statusMessage={runtime.exitStatusMessage}
-          tipMessages={tipMessages}
-          isExiting={runtime.isExiting}
-        />
+        {runtime.pendingQuestion ? (
+          <AskUserQuestionPrompt
+            questions={runtime.pendingQuestion.questions}
+            onSubmit={(answers) => void runtime.submitQuestionAnswers(answers)}
+            onCancel={runtime.dismissQuestion}
+          />
+        ) : (
+          <InputBox
+            view={runtime.inputController.view}
+            screenWidth={runtime.layout.screenWidth}
+            inputColumns={runtime.layout.inputColumns}
+            maxVisibleLines={runtime.layout.maxVisibleInputLines}
+            disabled={runtime.isStreaming}
+            statusMessage={runtime.exitStatusMessage}
+            tipMessages={tipMessages}
+            isExiting={runtime.isExiting}
+          />
+        )}
 
         <ContextUsageFooter config={runtime.config} contextUsage={runtime.contextUsage} />
       </Box>

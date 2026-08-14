@@ -9,6 +9,7 @@ export interface ToolResult {
   metadata?: Record<string, unknown>;
   followUpMessages?: ChatMessage[];
   contextModifier?: (context: ToolExecuteContext) => ToolExecuteContext;
+  awaitUserResponse?: boolean;
 }
 
 export interface ToolExecuteContext {

@@ -4,6 +4,7 @@ import type { AgentEvent } from "../src/agent/types.js";
 import {
   consumeChatEvent,
   createChatEventSession,
+  type PendingAskUserQuestion,
   type ChatEventHandlers,
 } from "../src/ui/chatEventReducer.js";
 import type { ContextUsageState } from "../src/ui/contextUsage.js";
@@ -16,6 +17,7 @@ function createHarness() {
   let streamingReasoning = "";
   let streamingAssistantTurn: AssistantTurn | null = null;
   let contextUsage: ContextUsageState = { status: "loading" };
+  let pendingQuestion: PendingAskUserQuestion | null = null;
   const handlers: ChatEventHandlers = {
     append: (entry) => entries.push(entry),
     makeEntry: (role, content, extra) => ({
@@ -35,6 +37,9 @@ function createHarness() {
     setContextUsage: (value) => {
       contextUsage = typeof value === "function" ? value(contextUsage) : value;
     },
+    setPendingQuestion: (value) => {
+      pendingQuestion = value;
+    },
   };
 
   return {
@@ -43,6 +48,7 @@ function createHarness() {
     get streamingReasoning() { return streamingReasoning; },
     get streamingAssistantTurn() { return streamingAssistantTurn; },
     get contextUsage() { return contextUsage; },
+    get pendingQuestion() { return pendingQuestion; },
   };
 }
 
@@ -95,4 +101,30 @@ test("turns standalone errors into chat entries", () => {
     timestamp: 1,
   }]);
   assert.deepEqual(harness.contextUsage, { status: "error" });
+});
+
+test("await user input finalizes streaming turn and stores pending question", () => {
+  const harness = createHarness();
+  const session = createChatEventSession();
+
+  consumeChatEvent({ type: "tool_call", callId: "call_1", name: "AskUserQuestion", arguments: {} }, session, harness.handlers);
+  consumeChatEvent({
+    type: "tool_result",
+    callId: "call_1",
+    name: "AskUserQuestion",
+    result: { success: true, data: "等待用户回答。" },
+  }, session, harness.handlers);
+  consumeChatEvent({
+    type: "await_user_input",
+    callId: "call_1",
+    questions: [{ question: "选哪个?", options: [{ label: "A" }] }],
+  }, session, harness.handlers);
+
+  assert.equal(harness.entries.length, 1);
+  assert.equal(harness.streamingAssistantTurn, null);
+  assert.deepEqual(harness.contextUsage, { status: "idle" });
+  assert.deepEqual(harness.pendingQuestion, {
+    callId: "call_1",
+    questions: [{ question: "选哪个?", options: [{ label: "A" }] }],
+  });
 });
