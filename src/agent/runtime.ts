@@ -67,7 +67,7 @@ export function createMemoryHistoryStore(messages: ChatMessage[] = []): AgentHis
 }
 
 function resolveRuntimeSession(workspaceRoot: string, sessionId: string | undefined): SessionInfo {
-  if (!sessionId) return defaultSessionStore.resolveContinueSession(workspaceRoot);
+  if (!sessionId) return defaultSessionStore.createSession(workspaceRoot);
   const session = defaultSessionStore.getSession(sessionId, workspaceRoot);
   if (session) return session;
   throw new Error(`会话不存在: ${sessionId}`);

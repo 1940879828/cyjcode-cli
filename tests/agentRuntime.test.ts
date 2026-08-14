@@ -64,6 +64,34 @@ test("memory history can truncate aborted turns", () => {
   assert.deepEqual(history.getMessages(), [{ role: "user", content: "before" }]);
 });
 
+test("default runtime starts a fresh session without explicit session id", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tigacode-fresh-session-"));
+  try {
+    const first = createDefaultAgentRuntime({ workspaceRoot });
+    first.history.addMessage({ role: "user", content: "previous session" });
+    const second = createDefaultAgentRuntime({ workspaceRoot });
+
+    assert.notEqual(second.sessionId, first.sessionId);
+    assert.deepEqual(second.history.getMessages(), []);
+  } finally {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("default runtime restores history for an explicit session id", () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tigacode-explicit-session-"));
+  try {
+    const first = createDefaultAgentRuntime({ workspaceRoot });
+    first.history.addMessage({ role: "user", content: "resume me" });
+    const second = createDefaultAgentRuntime({ workspaceRoot, sessionId: first.sessionId });
+
+    assert.equal(second.sessionId, first.sessionId);
+    assert.deepEqual(second.history.getMessages(), [{ role: "user", content: "resume me" }]);
+  } finally {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("default runtime rejects an explicit missing session id", () => {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tigacode-missing-session-"));
   try {
