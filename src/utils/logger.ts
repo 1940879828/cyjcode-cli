@@ -20,6 +20,8 @@ export interface LogEntry {
 
 const LOGS_DIR = path.join(getConfigDir(), "logs");
 
+let pendingLogWrite: Promise<void> = Promise.resolve();
+
 function getLogFilePath(): string {
   const now = new Date();
   const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -33,17 +35,32 @@ function ensureLogDir(): void {
 }
 
 /**
- * 写入一条 JSONL 日志记录
+ * 异步排队写入一条 JSONL 日志记录
  */
 export function log(type: LogEventType, data: Record<string, unknown> = {}): void {
-  ensureLogDir();
   const entry: LogEntry = {
     timestamp: new Date().toISOString(),
     type,
     data,
   };
   const line = JSON.stringify(entry) + "\n";
-  fs.appendFileSync(getLogFilePath(), line, "utf-8");
+  const filePath = getLogFilePath();
+  pendingLogWrite = pendingLogWrite
+    .then(() => appendLogLine(filePath, line))
+    .catch(reportLogWriteError);
+}
+
+export function flushLogs(): Promise<void> {
+  return pendingLogWrite;
+}
+
+async function appendLogLine(filePath: string, line: string): Promise<void> {
+  await fs.promises.mkdir(LOGS_DIR, { recursive: true });
+  await fs.promises.appendFile(filePath, line, "utf-8");
+}
+
+function reportLogWriteError(error: unknown): void {
+  console.error("[tigacode] 日志写入失败", error);
 }
 
 /**

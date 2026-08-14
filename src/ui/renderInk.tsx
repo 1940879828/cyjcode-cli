@@ -1,5 +1,6 @@
 import type React from "react";
 import { render } from "ink";
+import { flushLogs } from "../utils/logger.js";
 
 export interface InkRenderOptions {
   exitOnCtrlC?: boolean;
@@ -14,7 +15,11 @@ async function renderWithCleanup(
     alternateScreen: options.alternateScreen ?? false,
     exitOnCtrlC: options.exitOnCtrlC ?? true,
   });
-  await waitUntilExit();
+  try {
+    await waitUntilExit();
+  } finally {
+    await flushLogs();
+  }
 }
 
 export function startInk(
