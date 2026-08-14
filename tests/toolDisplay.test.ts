@@ -71,6 +71,16 @@ test("formats search display with default search path", () => {
   assert.equal(result, '🔍搜索文件"."');
 });
 
+test("formats shell display with command lists", () => {
+  const result = formatToolDisplay({
+    name: "shell",
+    arguments: { commands: ["npm run typecheck", "npm run test:shell"] },
+    result: { success: true },
+  });
+
+  assert.equal(result, '⚙️运行命令"npm run typecheck (+1)"');
+});
+
 test("formats tool errors as one compact line", () => {
   const result = formatToolErrorDisplay({
     name: "read",

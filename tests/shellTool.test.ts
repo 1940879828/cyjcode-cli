@@ -29,6 +29,74 @@ test("shell reports non-zero exit codes as failure", async () => {
   });
 });
 
+test("shell runs commands in order", async () => {
+  await withWorkspace(async () => {
+    const result = await shell.execute({
+      commands: [
+        `${nodeCommand()} -e "console.log('first')"`,
+        `${nodeCommand()} -e "console.log('second')"`,
+      ],
+    });
+
+    assert.equal(result.success, true);
+    assert.match(result.data ?? "", /# command 1 ok\nfirst/);
+    assert.match(result.data ?? "", /# command 2 ok\nsecond/);
+    assert.equal(getCommandResults(result.metadata).length, 2);
+  });
+});
+
+test("shell stops commands after the first failure by default", async () => {
+  await withWorkspace(async () => {
+    const result = await shell.execute({
+      commands: [
+        `${nodeCommand()} -e "console.log('before')"`,
+        `${nodeCommand()} -e "process.exit(7)"`,
+        `${nodeCommand()} -e "console.log('after')"`,
+      ],
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error ?? "", /command 2 failed with exit code 7/);
+    assert.match(result.data ?? "", /before/);
+    assert.doesNotMatch(result.data ?? "", /after/);
+    assert.equal(getCommandResults(result.metadata).length, 2);
+  });
+});
+
+test("shell can continue commands after a failure", async () => {
+  await withWorkspace(async () => {
+    const result = await shell.execute({
+      commands: [
+        `${nodeCommand()} -e "process.exit(7)"`,
+        `${nodeCommand()} -e "console.log('after')"`,
+      ],
+      stopOnError: false,
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error ?? "", /command 1 failed with exit code 7/);
+    assert.match(result.data ?? "", /# command 2 ok\nafter/);
+    assert.equal(getCommandResults(result.metadata).length, 2);
+  });
+});
+
+test("shell rejects PowerShell command chains with ampersand operators", async (context) => {
+  if (process.platform !== "win32") {
+    context.skip("PowerShell auto shell is only selected on Windows");
+    return;
+  }
+
+  await withWorkspace(async () => {
+    const result = await shell.execute({
+      command: "echo one && echo two",
+      shell: "auto",
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error ?? "", /PowerShell 不支持 &&/);
+  });
+});
+
 test("bash captures exit code when command exits explicitly", async (context) => {
   await withWorkspace(async () => {
     const result = await shell.execute({
@@ -116,7 +184,7 @@ test("shell rejects empty command", async () => {
     const result = await shell.execute({ command: "   " });
 
     assert.equal(result.success, false);
-    assert.match(result.error ?? "", /command 参数不能为空/);
+    assert.match(result.error ?? "", /command 或 commands 参数不能为空/);
   });
 });
 
@@ -177,4 +245,8 @@ function quotePowerShell(value: string): string {
 
 function quoteBash(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function getCommandResults(metadata: Record<string, unknown> | undefined): unknown[] {
+  return Array.isArray(metadata?.commandResults) ? metadata.commandResults : [];
 }

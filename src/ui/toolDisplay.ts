@@ -47,12 +47,24 @@ function getToolTarget(context: ToolDisplayContext): string {
 function getSpecialToolTarget(context: ToolDisplayContext): string | undefined {
   if (context.name === "search") return formatPath(stringArg(context.arguments.path) || ".");
   if (context.name === "rename") return formatRenameTarget(context.arguments);
-  if (context.name === "shell") return truncate(stringArg(context.arguments.command) || context.name, 80);
+  if (context.name === "shell") return formatShellTarget(context.arguments);
   return undefined;
 }
 
 function formatRenameTarget(args: Record<string, unknown>): string {
   return `${stringArg(args.oldPath) || "?"} → ${stringArg(args.newPath) || "?"}`;
+}
+
+function formatShellTarget(args: Record<string, unknown>): string {
+  const command = stringArg(args.command);
+  if (command) return truncate(command, 80);
+
+  const commands = Array.isArray(args.commands) ? args.commands.filter(isString) : [];
+  const nonEmptyCommands = commands.filter((value) => value.trim() !== "");
+  const firstCommand = nonEmptyCommands[0];
+  if (!firstCommand) return "shell";
+  const suffix = nonEmptyCommands.length > 1 ? ` (+${nonEmptyCommands.length - 1})` : "";
+  return truncate(`${firstCommand}${suffix}`, 80);
 }
 
 function getLineRange(metadata: Record<string, unknown> | undefined): string {
@@ -91,6 +103,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringArg(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
 
 function formatPath(filePath: string): string {
