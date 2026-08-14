@@ -22,6 +22,14 @@ test("system prompt uses the injected workspace root", () => {
   assert.match(prompt, /当前工作目录: D:\/project\/example/);
 });
 
+test("system prompt includes output format guidance", () => {
+  const prompt = buildSystemPrompt("D:/project/example");
+
+  assert.match(prompt, /输出格式:/);
+  assert.match(prompt, /结论前置/);
+  assert.match(prompt, /不以精简为名删信息/);
+});
+
 test("message builder consumes explicit history messages", () => {
   const history = createMemoryHistory([{ role: "user", content: "hello" }]);
 

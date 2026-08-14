@@ -17,6 +17,16 @@ const BEHAVIOR_RULES = [
   "不要访问工作目录之外的文件",
 ];
 
+const OUTPUT_FORMAT_RULES = [
+  "结论前置，先回答用户最关心的结果",
+  "段落短，一个段落只讲一件事，避免大段文字",
+  "能列表化时使用列表，但列表项必须保留完整语义，不要砍成关键词",
+  "操作类回答给明确下一步；代码修改类回答说明改了什么、验证了什么",
+  "不用 emoji 装饰，不写空泛套话，少用“值得注意的是”“不是 A 而是 B”这类抬价句式",
+  "保留约束、版本号、路径、命令、数字、异常情况，不以精简为名删信息",
+  "简单问题简短回答，复杂问题再分节",
+];
+
 export function buildSystemPrompt(
   workspaceRoot = process.cwd(),
   skills: SkillInfo[] = loadSkills(workspaceRoot),
@@ -43,7 +53,10 @@ function renderSystemPrompt(input: {
 ${input.toolDescriptions}
 
 行为准则:
-${input.behaviorRules}${input.skillListing ? `\n\n可用 Skills（仅为索引，完整内容需按需加载）:\n${input.skillListing}` : ""}`;
+${input.behaviorRules}
+
+输出格式:
+${buildOutputFormatRules()}${input.skillListing ? `\n\n可用 Skills（仅为索引，完整内容需按需加载）:\n${input.skillListing}` : ""}`;
 }
 
 function buildToolDescriptions(): string {
@@ -54,4 +67,8 @@ function buildToolDescriptions(): string {
 
 function buildBehaviorRules(): string {
   return BEHAVIOR_RULES.map((rule) => `- ${rule}`).join("\n");
+}
+
+function buildOutputFormatRules(): string {
+  return OUTPUT_FORMAT_RULES.map((rule) => `- ${rule}`).join("\n");
 }
