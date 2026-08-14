@@ -1,5 +1,5 @@
 import type { ToolResult } from "../tools/types.js";
-import type { TokenUsage } from "../llm/types.js";
+import type { TokenUsage, ToolCallDelta } from "../llm/types.js";
 
 export interface AskUserQuestionOption {
   label: string;
@@ -16,7 +16,7 @@ export interface AskUserQuestionItem {
  * Agent 运行期间产出的所有事件，调用方通过 for await...of 逐事件消费。
  *
  * 生命周期:
- *   user_message → turn_start → [text_delta | (tool_call → tool_result)]* → turn_end → ... → done
+ *   user_message → turn_start → [text_delta | tool_call_delta | (tool_call → tool_result)]* → turn_end → ... → done
  *
  *   - 纯文本回复: user_message → turn_start → text_delta* → turn_end → done
  *   - 工具调用场景: 可能经历多轮 turn，每轮 LLM 可能调用多个工具
@@ -38,7 +38,12 @@ export type AgentEvent =
       content: string;
     }
   | {
-      /** LLM 决定调用某个工具，携带工具名和已解析的参数对象 */
+      /** LLM 正在构造工具调用，参数可能还不是完整 JSON；UI 默认可忽略 */
+      type: "tool_call_delta";
+      deltas: ToolCallDelta[];
+    }
+  | {
+      /** 工具即将执行，携带工具名和已解析的完整参数对象 */
       type: "tool_call";
       callId: string;        // 本次工具调用的唯一标识，与 tool_result 一一对应
       name: string;          // 工具名，如 read_file、search_content 等

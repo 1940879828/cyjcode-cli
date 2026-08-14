@@ -103,6 +103,48 @@ test("turns standalone errors into chat entries", () => {
   assert.deepEqual(harness.contextUsage, { status: "error" });
 });
 
+test("shows pending tool call immediately", () => {
+  const harness = createHarness();
+  const session = createChatEventSession();
+
+  consumeChatEvent({
+    type: "tool_call",
+    callId: "call_1",
+    name: "shell",
+    arguments: { command: "npm test" },
+  }, session, harness.handlers);
+
+  assert.deepEqual(harness.streamingAssistantTurn?.parts, [{
+    id: "entry_1",
+    kind: "tool",
+    content: '⚙️运行命令"npm test" …',
+  }]);
+});
+
+test("replaces pending tool call with result summary", () => {
+  const harness = createHarness();
+  const session = createChatEventSession();
+
+  consumeChatEvent({
+    type: "tool_call",
+    callId: "call_1",
+    name: "shell",
+    arguments: { command: "npm test" },
+  }, session, harness.handlers);
+  consumeChatEvent({
+    type: "tool_result",
+    callId: "call_1",
+    name: "shell",
+    result: { success: true, data: "ok" },
+  }, session, harness.handlers);
+
+  assert.deepEqual(harness.streamingAssistantTurn?.parts, [{
+    id: "entry_1",
+    kind: "tool",
+    content: '⚙️运行命令"npm test"',
+  }]);
+});
+
 test("await user input finalizes streaming turn and stores pending question", () => {
   const harness = createHarness();
   const session = createChatEventSession();

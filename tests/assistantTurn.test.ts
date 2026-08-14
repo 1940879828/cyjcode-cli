@@ -5,6 +5,7 @@ import {
   appendAssistantTextDelta,
   createAssistantTurn,
   finalizeAssistantTurn,
+  replaceAssistantPart,
 } from "../src/ui/assistantTurn.js";
 
 test("keeps text delta streaming before finalizing assistant turn", () => {
@@ -84,4 +85,38 @@ test("stores failed tool summary as an assistant turn error part", () => {
       content: '👀读取文件"missing.ts" 失败: 文件不存在',
     },
   ]);
+});
+
+test("replaces assistant part by id", () => {
+  const turn = appendAssistantPart(
+    createAssistantTurn("turn_1", 1),
+    "unused_text_1",
+    { id: "tool_1", kind: "tool", content: '⚙️运行命令"npm test" …' },
+  );
+
+  const replaced = replaceAssistantPart(turn, "tool_1", {
+    id: "tool_1",
+    kind: "tool",
+    content: '⚙️运行命令"npm test"',
+  });
+
+  assert.deepEqual(replaced.parts, [
+    { id: "tool_1", kind: "tool", content: '⚙️运行命令"npm test"' },
+  ]);
+});
+
+test("keeps assistant turn unchanged when replacing missing part", () => {
+  const turn = appendAssistantPart(
+    createAssistantTurn("turn_1", 1),
+    "unused_text_1",
+    { id: "tool_1", kind: "tool", content: '👀读取文件"package.json"' },
+  );
+
+  const replaced = replaceAssistantPart(turn, "missing", {
+    id: "missing",
+    kind: "tool",
+    content: "ignored",
+  });
+
+  assert.equal(replaced, turn);
 });

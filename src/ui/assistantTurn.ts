@@ -46,6 +46,18 @@ export function appendAssistantPart(
   };
 }
 
+export function replaceAssistantPart(
+  turn: AssistantTurn,
+  partId: string,
+  part: AssistantTurnPart,
+): AssistantTurn {
+  if (!turn.parts.some((current) => current.id === partId)) return turn;
+  return {
+    ...turn,
+    parts: turn.parts.map((current) => current.id === partId ? part : current),
+  };
+}
+
 export function finalizeAssistantTurn(
   turn: AssistantTurn,
   textPartId: string,

@@ -7,6 +7,15 @@ export interface ToolDisplayContext {
   result: ToolResult;
 }
 
+export interface ToolCallDisplayContext {
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export function formatPendingToolDisplay(context: ToolCallDisplayContext): string {
+  return `${formatToolDisplay({ ...context, result: { success: true } })} …`;
+}
+
 export function formatToolDisplay(context: ToolDisplayContext): string {
   const target = getToolTarget(context);
   const range = getLineRange(context.result.metadata);

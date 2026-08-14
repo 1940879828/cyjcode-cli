@@ -79,10 +79,10 @@ async function* emitToolExecution(input: ToolExecutionContext): AsyncGenerator<A
   }
 
   logToolStart(input);
+  yield { type: "tool_call", callId: toolCall.id, name: toolCall.function.name, arguments: args };
   const result = await runTool(tool, args, input);
   logToolEnd(input, result);
 
-  yield { type: "tool_call", callId: toolCall.id, name: toolCall.function.name, arguments: args };
   const publicResult = toPublicToolResult(result);
   yield { type: "tool_result", callId: toolCall.id, name: toolCall.function.name, result: publicResult };
   rememberToolResult(input, formatToolResultForModel(publicResult));

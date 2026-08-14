@@ -7,16 +7,28 @@ import {
   createAssistantTurn,
   finalizeAssistantTurn,
   hasAssistantTurnContent,
+  replaceAssistantPart,
 } from "./assistantTurn.js";
-import type { AssistantTurn } from "./assistantTurn.js";
+import type { AssistantTurn, AssistantTurnPart } from "./assistantTurn.js";
 import type { ContextUsageState } from "./contextUsage.js";
-import { formatToolDisplay, formatToolErrorDisplay } from "./toolDisplay.js";
+import { formatPendingToolDisplay, formatToolDisplay, formatToolErrorDisplay } from "./toolDisplay.js";
 import type { ChatEntry, TextChatEntry, ToolCallEntry } from "./chatTypes.js";
+
+interface PendingToolCall extends ToolCallEntry {
+  partId?: string;
+}
+
+interface ReplacePendingToolPartInput {
+  session: ChatEventSession;
+  handlers: ChatEventHandlers;
+  partId: string | undefined;
+  part: AssistantTurnPart;
+}
 
 export interface ChatEventSession {
   reasoning: string;
   assistantTurn: AssistantTurn | null;
-  pendingToolCalls: Map<string, ToolCallEntry>;
+  pendingToolCalls: Map<string, PendingToolCall>;
 }
 
 export interface ChatEventHandlers {
@@ -64,7 +76,8 @@ const AGENT_EVENT_HANDLERS: {
 } = {
   reasoning_delta: (event, session, handlers) => appendReasoning(event.content, session, handlers),
   text_delta: (event, session, handlers) => appendAssistantText(event.content, session, handlers),
-  tool_call: rememberToolCall,
+  tool_call_delta: ignoreAgentEvent,
+  tool_call: appendPendingToolCall,
   tool_result: appendToolResultSummary,
   await_user_input: finishAwaitUserInput,
   usage: (event, _session, handlers) => handlers.setContextUsage({ status: "ready", usage: event.usage }),
@@ -98,15 +111,24 @@ function appendAssistantText(
   handlers.setStreamingAssistantTurn(session.assistantTurn);
 }
 
-function rememberToolCall(
+function appendPendingToolCall(
   event: Extract<AgentEvent, { type: "tool_call" }>,
   session: ChatEventSession,
+  handlers: ChatEventHandlers,
 ): void {
+  const partId = handlers.nextId();
   session.pendingToolCalls.set(event.callId, {
     callId: event.callId,
     name: event.name,
     arguments: event.arguments,
+    partId,
   });
+  session.assistantTurn = appendAssistantPart(
+    session.assistantTurn ?? createAssistantTurn(handlers.nextId(), Date.now()),
+    handlers.nextId(),
+    { id: partId, kind: "tool", content: formatPendingToolDisplay(event) },
+  );
+  handlers.setStreamingAssistantTurn(session.assistantTurn);
 }
 
 function appendToolResultSummary(
@@ -115,19 +137,43 @@ function appendToolResultSummary(
   handlers: ChatEventHandlers,
 ): void {
   const toolCall = takeToolCall(event, session);
-  const content = formatToolResultSummary(event, toolCall);
+  const part = createToolResultPart(event, toolCall, handlers.nextId());
+  if (replacePendingToolPart({ session, handlers, partId: toolCall.partId, part })) return;
+
   session.assistantTurn = appendAssistantPart(
     session.assistantTurn ?? createAssistantTurn(handlers.nextId(), Date.now()),
     handlers.nextId(),
-    { id: handlers.nextId(), kind: event.result.success ? "tool" : "error", content },
+    part,
   );
   handlers.setStreamingAssistantTurn(session.assistantTurn);
+}
+
+function replacePendingToolPart(input: ReplacePendingToolPartInput): boolean {
+  const { session, handlers, partId, part } = input;
+  if (!partId || !session.assistantTurn) return false;
+  const nextTurn = replaceAssistantPart(session.assistantTurn, partId, { ...part, id: partId });
+  if (nextTurn === session.assistantTurn) return false;
+  session.assistantTurn = nextTurn;
+  handlers.setStreamingAssistantTurn(nextTurn);
+  return true;
+}
+
+function createToolResultPart(
+  event: Extract<AgentEvent, { type: "tool_result" }>,
+  toolCall: ToolCallEntry,
+  id: string,
+): AssistantTurnPart {
+  return {
+    id,
+    kind: event.result.success ? "tool" : "error",
+    content: formatToolResultSummary(event, toolCall),
+  };
 }
 
 function takeToolCall(
   event: Extract<AgentEvent, { type: "tool_result" }>,
   session: ChatEventSession,
-): ToolCallEntry {
+): PendingToolCall {
   const toolCall = session.pendingToolCalls.get(event.callId) ?? {
     callId: event.callId,
     name: event.name,

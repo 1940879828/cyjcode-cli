@@ -78,6 +78,27 @@ test("builds stable transcript row order", () => {
   );
 });
 
+test("renders pending tool part as tool rows", () => {
+  const rows = buildTranscriptEntryRows({
+    entry: {
+      id: "assistant_1",
+      role: "assistant",
+      parts: [{ id: "assistant_tool", kind: "tool", content: '⚙️运行命令"npm test" …' }],
+      activeText: "",
+      timestamp: 1,
+    },
+    width: 80,
+  });
+
+  assert.deepEqual(
+    rows.map((row) => ({ kind: row.kind, text: row.text })),
+    [
+      { kind: "tool", text: '  ⚙️运行命令"npm test" …' },
+      { kind: "spacer", text: "" },
+    ],
+  );
+});
+
 test("adds header rows before chat history", () => {
   const rows = buildTranscriptRows({
     header: {

@@ -60,6 +60,15 @@ test("AskUserQuestion tool execution emits await_user_input and stops batch", as
   assert.equal(history.getMessages()[0]?.name, "AskUserQuestion");
 });
 
+test("tool execution emits tool_call before tool_result", async () => {
+  const history = createMemoryHistory();
+  const events = await drainToolEvents(history, [readToolCall("call_read")]);
+
+  assert.deepEqual(events.slice(0, 2).map((event) => event.type), ["tool_call", "tool_result"]);
+  assert.equal(history.getMessages().length, 1);
+  assert.equal(history.getMessages()[0]?.name, "read");
+});
+
 test("tool calls after AskUserQuestion are excluded from the protocol batch", () => {
   const selected = selectExecutableToolCalls([
     readToolCall("call_read"),

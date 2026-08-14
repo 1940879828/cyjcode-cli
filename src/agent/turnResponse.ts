@@ -34,7 +34,7 @@ export function consumeStreamEvent(
     case "done":
       context.response.toolCalls = extractToolCalls(event.message.tool_calls);
       return null;
-    case "tool_call_delta": return null;
+    case "tool_call_delta": return { type: "tool_call_delta", deltas: event.deltas };
     case "error": throw event.error;
   }
 }
