@@ -37,6 +37,14 @@ test("system prompt includes output format guidance", () => {
   assert.match(prompt, /不以精简为名删信息/);
 });
 
+test("system prompt includes engineering judgment guidance", () => {
+  const prompt = buildSystemPrompt("D:/project/example");
+
+  assert.match(prompt, /第一性原理/);
+  assert.match(prompt, /禁止症状遮蔽式工程/);
+  assert.match(prompt, /temporary mitigation/);
+});
+
 test("message builder consumes explicit history messages", () => {
   const history = createMemoryHistory([{ role: "user", content: "hello" }]);
 

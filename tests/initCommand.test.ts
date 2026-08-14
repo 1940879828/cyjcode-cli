@@ -53,6 +53,25 @@ test("renderInitCommandPrompt includes pre-edit checks", () => {
   assert.match(prompt, /完成后至少运行 `npm run typecheck`/);
 });
 
+test("renderInitCommandPrompt protects existing AGENTS.md content", () => {
+  const workspace = createWorkspace();
+  fs.writeFileSync(path.join(workspace, PROJECT_INSTRUCTIONS_FILE), "custom rules", "utf8");
+
+  const prompt = renderInitCommandPrompt(workspace);
+
+  assert.match(prompt, /先完整读取现有内容/);
+  assert.match(prompt, /保留用户已经写好的项目约定/);
+  assert.match(prompt, /不得整体覆盖/);
+});
+
+test("renderInitCommandPrompt includes engineering judgment guidance", () => {
+  const prompt = renderInitCommandPrompt(createWorkspace());
+
+  assert.match(prompt, /第一性原理/);
+  assert.match(prompt, /禁止症状遮蔽式工程/);
+  assert.match(prompt, /temporary mitigation/);
+});
+
 test("expandInitCommandMessages replaces only user /init messages", () => {
   const messages: ChatMessage[] = [
     { role: "system", content: INIT_COMMAND },
