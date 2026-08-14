@@ -9,7 +9,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "tsx --watch src/cli.tsx",
+    "dev": "tsx src/cli.tsx",
     "dev:tsx": "tsx src/cli.tsx",
     "dev:babel": "npm run build:babel && concurrently --kill-others --names \"babel,node\" \"babel src --out-dir .babel-out --extensions .ts,.tsx --watch\" \"node --watch .babel-out/cli.js\"",
     "devrecord": "tsx src/devmock/cli.tsx --record default.json",
