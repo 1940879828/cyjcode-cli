@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AppConfig } from "../src/config/store.js";
+import { createModelConfig, type AppConfig } from "../src/config/store.js";
 import { handleEffortCommand } from "../src/ui/effortCommand.js";
 
 function createConfig(): AppConfig {
@@ -8,7 +8,7 @@ function createConfig(): AppConfig {
     baseUrl: "https://example.test",
     apiKey: "test-key",
     model: "deepseek-v4-pro",
-    models: ["deepseek-v4-pro"],
+    models: [createModelConfig("deepseek-v4-pro")],
     thinking: true,
     reasoningEffort: "high",
   };

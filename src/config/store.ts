@@ -13,15 +13,26 @@ export interface AppConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
-  models: string[];
+  models: ModelConfig[];
   thinking: boolean;
   reasoningEffort: ReasoningEffort;
+}
+
+export interface ModelConfig {
+  name: string;
+  contextWindow: number;
 }
 
 const CONFIG_DIR = path.join(os.homedir(), APP.configDirName);
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const LEGACY_DIR = path.join(os.homedir(), LEGACY_DIR_NAME);
 const PRIVATE_FILE_MODE = 0o600;
+export const DEFAULT_CONTEXT_WINDOW = 256 * 1024;
+export const DEEPSEEK_V4_CONTEXT_WINDOW = 1024 * 1024;
+export const DEFAULT_MODEL_CONFIGS: ModelConfig[] = [
+  { name: "deepseek-v4-pro", contextWindow: DEEPSEEK_V4_CONTEXT_WINDOW },
+  { name: "deepseek-v4-flash", contextWindow: DEEPSEEK_V4_CONTEXT_WINDOW },
+];
 
 // ─── 默认值（唯一配置源） ──────────────────────────
 
@@ -29,7 +40,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   baseUrl: "https://api.deepseek.com",
   apiKey: "",
   model: "deepseek-v4-pro",
-  models: [],
+  models: DEFAULT_MODEL_CONFIGS,
   thinking: true,
   reasoningEffort: "high",
 };
@@ -65,18 +76,18 @@ export function hasConfig(): boolean {
 // 读取配置文件
 export function getConfig(): AppConfig {
   if (!hasConfig()) {
-    return { ...DEFAULT_CONFIG };
+    return normalizeConfig(DEFAULT_CONFIG);
   }
   protectConfigFile();
   const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
-  const parsed = JSON.parse(raw) as Partial<AppConfig>;
+  const parsed = JSON.parse(raw) as RawAppConfig;
   return normalizeConfig({ ...DEFAULT_CONFIG, ...parsed });
 }
 
 // 写入配置文件
 export function setConfig(config: AppConfig): void {
   ensureDir();
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(normalizeConfig(config), null, 2), {
     encoding: "utf-8",
     mode: PRIVATE_FILE_MODE,
   });
@@ -93,11 +104,97 @@ export function getConfigDir(): string {
   return CONFIG_DIR;
 }
 
-function normalizeConfig(config: AppConfig): AppConfig {
-  if ((REASONING_EFFORTS as readonly string[]).includes(config.reasoningEffort)) {
-    return config;
+type RawAppConfig = Partial<Omit<AppConfig, "models">> & { models?: unknown };
+
+export function createModelConfig(
+  name: string,
+  contextWindow = getDefaultContextWindow(name),
+): ModelConfig {
+  return { name: name.trim(), contextWindow };
+}
+
+export function getModelContextWindow(model: string, models: ModelConfig[]): number {
+  const normalized = model.trim();
+  return models.find((item) => item.name === normalized)?.contextWindow
+    ?? getDefaultContextWindow(normalized);
+}
+
+export function parseContextWindow(value: string): number | null {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)([km])?$/i);
+  if (!match) return null;
+  const scale = readContextWindowScale(match[2]);
+  const tokens = Number(match[1]) * scale;
+  return Number.isFinite(tokens) && tokens > 0 ? Math.round(tokens) : null;
+}
+
+function normalizeConfig(config: RawAppConfig): AppConfig {
+  const model = config.model || DEFAULT_CONFIG.model;
+  return {
+    ...DEFAULT_CONFIG,
+    ...config,
+    model,
+    models: normalizeModelConfigs(config.models, model),
+    reasoningEffort: normalizeReasoningEffort(config.reasoningEffort),
+  };
+}
+
+function normalizeModelConfigs(models: unknown, currentModel: string): ModelConfig[] {
+  const rawModels = Array.isArray(models) ? models : [];
+  const modelConfigs = rawModels.map(readModelConfig).filter((item) => item !== null);
+  return uniqueModelConfigs([...modelConfigs, createModelConfig(currentModel)]);
+}
+
+function readModelConfig(value: unknown): ModelConfig | null {
+  if (typeof value === "string") return readModelNameConfig(value);
+  if (!isRecord(value)) return null;
+
+  const name = typeof value.name === "string" ? value.name.trim() : "";
+  if (!name) return null;
+  return createModelConfig(name, readContextWindow(value.contextWindow, name));
+}
+
+function readModelNameConfig(name: string): ModelConfig | null {
+  const normalized = name.trim();
+  return normalized ? createModelConfig(normalized) : null;
+}
+
+function readContextWindow(value: unknown, model: string): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.round(value);
   }
-  return { ...config, reasoningEffort: DEFAULT_CONFIG.reasoningEffort };
+  return typeof value === "string"
+    ? parseContextWindow(value) ?? getDefaultContextWindow(model)
+    : getDefaultContextWindow(model);
+}
+
+function getDefaultContextWindow(model: string): number {
+  return DEFAULT_MODEL_CONFIGS.find((item) => item.name === model.trim())?.contextWindow
+    ?? DEFAULT_CONTEXT_WINDOW;
+}
+
+function readContextWindowScale(unit: string | undefined): number {
+  if (unit?.toLowerCase() === "m") return 1024 * 1024;
+  if (unit?.toLowerCase() === "k") return 1024;
+  return 1;
+}
+
+function normalizeReasoningEffort(effort: unknown): ReasoningEffort {
+  return typeof effort === "string" && (REASONING_EFFORTS as readonly string[]).includes(effort)
+    ? effort as ReasoningEffort
+    : DEFAULT_CONFIG.reasoningEffort;
+}
+
+function uniqueModelConfigs(models: ModelConfig[]): ModelConfig[] {
+  const seen = new Set<string>();
+  return models.filter((model) => {
+    if (seen.has(model.name)) return false;
+    seen.add(model.name);
+    return true;
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function protectConfigFile(): void {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_CONFIG } from "../src/config/store.js";
+import { createModelConfig, DEFAULT_CONFIG } from "../src/config/store.js";
 import {
   appendSetupInput,
   applySetupStep,
@@ -29,7 +29,7 @@ test("applies editable steps and builds final config", () => {
     baseUrl: "https://example.test",
     apiKey: "sk-test",
     model: "custom-model",
-    models: ["custom-model"],
+    models: [createModelConfig("custom-model")],
     thinking: DEFAULT_CONFIG.thinking,
     reasoningEffort: DEFAULT_CONFIG.reasoningEffort,
   });

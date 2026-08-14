@@ -1,12 +1,11 @@
+import { getModelContextWindow } from "../config/store.js";
+import type { ModelConfig } from "../config/store.js";
 import type { TokenUsage } from "../llm/types.js";
 
 const CONTEXT_BAR_WIDTH = 15;
 const CONTEXT_BAR_CELL = " ";
 const CONTEXT_BAR_USED_FALLBACK_CELL = "█";
 const CONTEXT_BAR_UNUSED_FALLBACK_CELL = "░";
-const DEFAULT_CONTEXT_WINDOW = 256 * 1024;
-const DEEPSEEK_V4_CONTEXT_WINDOW = 1024 * 1024;
-const DEEPSEEK_V4_MODELS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"]);
 const CURSOR_BLUE = "#55A8E8";
 const BAR_UNUSED_BACKGROUND = "#2A2F36";
 
@@ -30,10 +29,8 @@ export interface ContextUsageBarView {
   suffix: string;
 }
 
-export function getContextWindow(model: string): number {
-  return DEEPSEEK_V4_MODELS.has(model.trim())
-    ? DEEPSEEK_V4_CONTEXT_WINDOW
-    : DEFAULT_CONTEXT_WINDOW;
+export function getContextWindow(model: string, models: ModelConfig[] = []): number {
+  return getModelContextWindow(model, models);
 }
 
 export function formatTokenCount(tokens: number): string {
@@ -93,9 +90,10 @@ function toFallbackBar(bar: ContextUsageBarView): string {
 export function selectContextUsageView(
   state: ContextUsageState,
   model: string,
+  models: ModelConfig[] = [],
 ): ContextUsageView {
   if (state.status === "idle") {
-    return selectIdleContextUsageView(model);
+    return selectIdleContextUsageView(model, models);
   }
   if (state.status === "loading") {
     return { text: "统计中...", color: "gray" };
@@ -104,19 +102,23 @@ export function selectContextUsageView(
     return { text: "统计失败", color: "red" };
   }
 
-  return selectReadyContextUsageView(state.usage, model);
+  return selectReadyContextUsageView(state.usage, model, models);
 }
 
-function selectIdleContextUsageView(model: string): ContextUsageView {
+function selectIdleContextUsageView(model: string, models: ModelConfig[]): ContextUsageView {
   return {
     text: "",
     color: "gray",
-    bar: formatContextUsageBar(0, getContextWindow(model)),
+    bar: formatContextUsageBar(0, getContextWindow(model, models)),
   };
 }
 
-function selectReadyContextUsageView(usage: TokenUsage, model: string): ContextUsageView {
-  const contextWindow = getContextWindow(model);
+function selectReadyContextUsageView(
+  usage: TokenUsage,
+  model: string,
+  models: ModelConfig[],
+): ContextUsageView {
+  const contextWindow = getContextWindow(model, models);
   const ratio = usage.promptTokens / contextWindow;
   const bar = formatContextUsageBar(usage.promptTokens, contextWindow);
   return {

@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, type AppConfig } from "../config/store.js";
+import { createModelConfig, DEFAULT_CONFIG, type AppConfig } from "../config/store.js";
 
 export type SetupStep = "baseUrl" | "apiKey" | "model" | "confirm";
 
@@ -89,7 +89,7 @@ export function createSetupConfig(values: SetupValues): AppConfig {
     baseUrl: values.baseUrl || DEFAULT_CONFIG.baseUrl,
     apiKey: values.apiKey,
     model,
-    models: [model],
+    models: [createModelConfig(model)],
     thinking: DEFAULT_CONFIG.thinking,
     reasoningEffort: DEFAULT_CONFIG.reasoningEffort,
   };

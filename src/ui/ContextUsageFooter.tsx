@@ -10,7 +10,7 @@ export function ContextUsageFooter({
   config: AppConfig;
   contextUsage: Parameters<typeof selectContextUsageView>[0];
 }) {
-  const contextUsageView = selectContextUsageView(contextUsage, config.model);
+  const contextUsageView = selectContextUsageView(contextUsage, config.model, config.models);
   return (
     <Box paddingX={1} height={1}>
       <Text>{config.model}</Text>

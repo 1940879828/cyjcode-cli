@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createModelConfig } from "../src/config/store.js";
 import {
   formatContextUsage,
   formatContextUsageBar,
@@ -32,15 +33,14 @@ test("formatContextUsageBar separates used and unused color-block segments", () 
   });
 });
 
-test("getContextWindow follows DeepSeek V4 and default model windows", () => {
-  assert.equal(getContextWindow("deepseek-v4-pro"), 1024 * 1024);
-  assert.equal(getContextWindow("deepseek-v4-flash"), 1024 * 1024);
+test("getContextWindow follows configured and default model windows", () => {
+  assert.equal(getContextWindow("custom-model", [createModelConfig("custom-model", 512 * 1024)]), 512 * 1024);
   assert.equal(getContextWindow("other-model"), 256 * 1024);
 });
 
 test("selectContextUsageView shows context capacity for every state", () => {
   assert.deepEqual(
-    selectContextUsageView({ status: "idle" }, "deepseek-v4-pro"),
+    selectContextUsageView({ status: "idle" }, "deepseek-v4-pro", [createModelConfig("deepseek-v4-pro")]),
     {
       text: "",
       color: "gray",
@@ -54,11 +54,11 @@ test("selectContextUsageView shows context capacity for every state", () => {
     },
   );
   assert.deepEqual(
-    selectContextUsageView({ status: "loading" }, "deepseek-v4-pro"),
+    selectContextUsageView({ status: "loading" }, "deepseek-v4-pro", [createModelConfig("deepseek-v4-pro")]),
     { text: "统计中...", color: "gray" },
   );
   assert.deepEqual(
-    selectContextUsageView({ status: "error" }, "deepseek-v4-pro"),
+    selectContextUsageView({ status: "error" }, "deepseek-v4-pro", [createModelConfig("deepseek-v4-pro")]),
     { text: "统计失败", color: "red" },
   );
   assert.deepEqual(
@@ -69,7 +69,7 @@ test("selectContextUsageView shows context capacity for every state", () => {
         completionTokens: 100,
         totalTokens: 850,
       },
-    }, "custom"),
+    }, "custom", [createModelConfig("custom", 512 * 1024)]),
     {
       text: "",
       color: "gray",
@@ -78,7 +78,7 @@ test("selectContextUsageView shows context capacity for every state", () => {
         unused: "               ",
         usedBackgroundColor: "#55A8E8",
         unusedBackgroundColor: "#2A2F36",
-        suffix: "750/256K 0.3%",
+        suffix: "750/512K 0.1%",
       },
     },
   );
