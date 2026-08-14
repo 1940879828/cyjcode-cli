@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppConfig } from "../src/config/store.js";
-import { buildStreamingParamsWithConfig } from "../src/llm/client.js";
+import { buildStreamingParamsWithConfig, toTokenUsage } from "../src/llm/client.js";
 
 const createConfig = (thinking: boolean): AppConfig => ({
   baseUrl: "https://example.test",
@@ -28,4 +28,35 @@ test("enables thinking mode with reasoning effort", () => {
 
   assert.deepEqual(params.thinking, { type: "enabled" });
   assert.equal(params.reasoning_effort, "high");
+});
+
+test("maps DeepSeek cache usage fields", () => {
+  assert.deepEqual(toTokenUsage({
+    prompt_tokens: 1000,
+    completion_tokens: 100,
+    total_tokens: 1100,
+    prompt_cache_hit_tokens: 900,
+    prompt_cache_miss_tokens: 100,
+  }), {
+    promptTokens: 1000,
+    completionTokens: 100,
+    totalTokens: 1100,
+    cacheHitTokens: 900,
+    cacheMissTokens: 100,
+  });
+});
+
+test("maps OpenAI-compatible cached token usage field", () => {
+  assert.deepEqual(toTokenUsage({
+    prompt_tokens: 1000,
+    completion_tokens: 100,
+    total_tokens: 1100,
+    prompt_tokens_details: { cached_tokens: 800 },
+  }), {
+    promptTokens: 1000,
+    completionTokens: 100,
+    totalTokens: 1100,
+    cacheHitTokens: 800,
+    cacheMissTokens: 200,
+  });
 });

@@ -54,6 +54,9 @@ function ContextUsageBar({ view }: { view: ContextUsageView }) {
       <Text backgroundColor={view.bar.usedBackgroundColor}>{view.bar.used}</Text>
       <Text backgroundColor={view.bar.unusedBackgroundColor}>{view.bar.unused}</Text>
       <Text color="gray" dimColor>{` ${view.bar.suffix}`}</Text>
+      {view.bar.cacheHitLabel ? (
+        <Text color="gray" dimColor>{` ${view.bar.cacheHitLabel}`}</Text>
+      ) : null}
     </>
   );
 }

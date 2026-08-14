@@ -28,6 +28,7 @@ export interface ContextUsageBarView {
   usedBackgroundColor: string;
   unusedBackgroundColor: string;
   suffix: string;
+  cacheHitLabel?: string;
 }
 
 export function getContextWindow(model: string): number {
@@ -118,12 +119,31 @@ function selectIdleContextUsageView(model: string): ContextUsageView {
 function selectReadyContextUsageView(usage: TokenUsage, model: string): ContextUsageView {
   const contextWindow = getContextWindow(model);
   const ratio = usage.promptTokens / contextWindow;
-  const bar = formatContextUsageBar(usage.promptTokens, contextWindow);
+  const cacheHitLabel = formatCacheHitLabel(usage);
+  const bar = {
+    ...formatContextUsageBar(usage.promptTokens, contextWindow),
+    ...(cacheHitLabel === undefined ? {} : { cacheHitLabel }),
+  };
   return {
     text: "",
     color: getUsageColor(ratio),
     bar,
   };
+}
+
+export function formatCacheHitLabel(usage: TokenUsage): string | undefined {
+  const cacheHitTokens = normalizeOptionalTokenCount(usage.cacheHitTokens);
+  const cacheMissTokens = normalizeOptionalTokenCount(usage.cacheMissTokens);
+  if (cacheHitTokens === undefined || cacheMissTokens === undefined) return undefined;
+
+  const cacheInputTokens = cacheHitTokens + cacheMissTokens;
+  return cacheInputTokens > 0
+    ? `缓存:${(cacheHitTokens / cacheInputTokens * 100).toFixed(1)}%`
+    : undefined;
+}
+
+function normalizeOptionalTokenCount(tokens: number | undefined): number | undefined {
+  return tokens === undefined ? undefined : normalizeTokenCount(tokens);
 }
 
 function getUsageColor(ratio: number): ContextUsageView["color"] {

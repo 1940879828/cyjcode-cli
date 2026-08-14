@@ -21,6 +21,11 @@ type StreamingParams = Omit<OpenAI.Chat.ChatCompletionCreateParamsStreaming, "to
   thinking?: { type: "enabled" | "disabled" };
   reasoning_effort?: string;
 };
+export type ProviderUsage = OpenAI.Completions.CompletionUsage & {
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
+};
 type Delta = ChatChunk["choices"][number]["delta"];
 type DeltaToolCall = NonNullable<Delta["tool_calls"]>[number];
 
@@ -227,10 +232,26 @@ function buildToolCalls(state: StreamState): ToolCall[] {
     }));
 }
 
-function toTokenUsage(usage: OpenAI.Completions.CompletionUsage): TokenUsage {
+export function toTokenUsage(usage: ProviderUsage): TokenUsage {
+  const cacheHitTokens = usage.prompt_tokens_details?.cached_tokens
+    ?? usage.prompt_cache_hit_tokens;
+  const cacheMissTokens = usage.prompt_cache_miss_tokens
+    ?? deriveCacheMissTokens(usage.prompt_tokens, cacheHitTokens);
+
   return {
     promptTokens: usage.prompt_tokens,
     completionTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
+    ...(cacheHitTokens === undefined ? {} : { cacheHitTokens }),
+    ...(cacheMissTokens === undefined ? {} : { cacheMissTokens }),
   };
+}
+
+function deriveCacheMissTokens(
+  promptTokens: number,
+  cacheHitTokens: number | undefined,
+): number | undefined {
+  return cacheHitTokens === undefined
+    ? undefined
+    : Math.max(0, promptTokens - cacheHitTokens);
 }

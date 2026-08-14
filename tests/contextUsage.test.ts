@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  formatCacheHitLabel,
   formatContextUsage,
   formatContextUsageBar,
   formatTokenCount,
@@ -30,6 +31,29 @@ test("formatContextUsageBar separates used and unused color-block segments", () 
     unusedBackgroundColor: "#2A2F36",
     suffix: "200/1000 20.0%",
   });
+});
+
+test("formatCacheHitLabel shows provider cache token hit rate", () => {
+  assert.equal(formatCacheHitLabel({
+    promptTokens: 1000,
+    completionTokens: 100,
+    totalTokens: 1100,
+    cacheHitTokens: 900,
+    cacheMissTokens: 100,
+  }), "缓存:90.0%");
+  assert.equal(formatCacheHitLabel({
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    cacheHitTokens: 0,
+    cacheMissTokens: 0,
+  }), undefined);
+  assert.equal(formatCacheHitLabel({
+    promptTokens: 1000,
+    completionTokens: 100,
+    totalTokens: 1100,
+    cacheHitTokens: 900,
+  }), undefined);
 });
 
 test("getContextWindow follows DeepSeek V4 and default model windows", () => {
@@ -79,6 +103,30 @@ test("selectContextUsageView shows context capacity for every state", () => {
         usedBackgroundColor: "#55A8E8",
         unusedBackgroundColor: "#2A2F36",
         suffix: "750/256K 0.3%",
+      },
+    },
+  );
+  assert.deepEqual(
+    selectContextUsageView({
+      status: "ready",
+      usage: {
+        promptTokens: 1000,
+        completionTokens: 100,
+        totalTokens: 1100,
+        cacheHitTokens: 900,
+        cacheMissTokens: 100,
+      },
+    }, "custom"),
+    {
+      text: "",
+      color: "gray",
+      bar: {
+        used: "",
+        unused: "               ",
+        usedBackgroundColor: "#55A8E8",
+        unusedBackgroundColor: "#2A2F36",
+        suffix: "1000/256K 0.4%",
+        cacheHitLabel: "缓存:90.0%",
       },
     },
   );
