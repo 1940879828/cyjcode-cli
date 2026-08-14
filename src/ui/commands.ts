@@ -2,6 +2,7 @@ import { getConfig, getConfigPath } from "../config/store.js";
 import { handleModelCommand } from "./modelCommand.js";
 import { handleEffortCommand } from "./effortCommand.js";
 import { handleThinkingCommand } from "./thinkingCommand.js";
+import { getDefaultSkillManager } from "../agent/runtime.js";
 
 /** 命令类型，作为分发依据 */
 export type SlashCommandKind =
@@ -11,6 +12,8 @@ export type SlashCommandKind =
   | "setup"
   | "model"
   | "init"
+  | "skills"
+  | "skill"
   | "thinking"
   | "effort";
 
@@ -118,6 +121,13 @@ export const slashCommands: SlashCommand[] = [
     name: "/init",
     description: "生成或更新 AGENTS.md 项目说明",
   },
+  {
+    kind: "skills",
+    execution: "local",
+    name: "/skills",
+    description: "列出当前可用 skills",
+    handler: () => getDefaultSkillManager().formatStatus(),
+  },
 ];
 
 export interface ParsedSlashCommand {
@@ -135,7 +145,22 @@ export function parseSlashInput(input: string): ParsedSlashCommand | null {
 
   const [name, ...args] = trimmed.split(/\s+/);
   const command = slashCommands.find((c) => c.name === name);
-  if (!command) return null;
+  if (!command) return parseSkillSlashCommand(name, args);
 
   return { command, args };
+}
+
+function parseSkillSlashCommand(name: string, args: string[]): ParsedSlashCommand | null {
+  const skillName = name.slice(1);
+  const skill = getDefaultSkillManager().list().find((item) => item.userInvocable && item.name === skillName);
+  if (!skill) return null;
+  return {
+    command: {
+      kind: "skill",
+      execution: "agent",
+      name,
+      description: skill.description || `加载 skill: ${skill.name}`,
+    },
+    args,
+  };
 }

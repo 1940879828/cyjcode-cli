@@ -7,6 +7,7 @@ import {
 } from "react";
 import { runAgentLoop } from "../../agent/loop.js";
 import { clearHistory } from "../../agent/history.js";
+import { resetDefaultSkillSessionState } from "../../agent/runtime.js";
 import type { AgentEvent } from "../../agent/types.js";
 import {
   finalizeAssistantTurn,
@@ -236,6 +237,7 @@ function createClearChat(
   return () => {
     setEntries([]);
     clearHistory();
+    resetDefaultSkillSessionState();
     setters.setStreamingAssistantTurn(null);
     setters.setContextUsage({ status: "idle" });
   };

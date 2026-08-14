@@ -1,16 +1,16 @@
 import { z } from "zod";
-import type { Tool, ToolResult } from "./types.js";
+import type { Tool, ToolExecuteContext, ToolResult } from "./types.js";
 
 interface DefineToolInput<TSchema extends z.ZodType, TResult extends Promise<ToolResult> | ToolResult> {
   name: string;
   description: string;
   schema: TSchema;
-  execute: (args: z.infer<TSchema>) => TResult;
+  execute: (args: z.infer<TSchema>, context?: ToolExecuteContext) => TResult;
 }
 
 type DefinedTool<TResult extends Promise<ToolResult> | ToolResult> =
   Omit<Tool, "execute"> & {
-    execute(args: Record<string, unknown>): TResult extends Promise<ToolResult>
+    execute(args: Record<string, unknown>, context?: ToolExecuteContext): TResult extends Promise<ToolResult>
       ? Promise<ToolResult> | ToolResult
       : ToolResult;
   };
@@ -22,10 +22,10 @@ export function defineTool<TSchema extends z.ZodType, TResult extends Promise<To
     name: input.name,
     description: input.description,
     parameters: toParameters(input.schema),
-    execute(args) {
+    execute(args: Record<string, unknown>, context?: ToolExecuteContext) {
       const parsed = input.schema.safeParse(args);
       if (!parsed.success) return { success: false, error: formatSchemaError(parsed.error) };
-      return input.execute(parsed.data);
+      return input.execute(parsed.data, context);
     },
   } as DefinedTool<TResult>;
 }

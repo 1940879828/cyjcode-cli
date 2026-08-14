@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../llm/types.js";
+import { createSkillManager, type SkillManager } from "../skills/index.js";
 import { log } from "../utils/logger.js";
 import {
   addMessage,
@@ -20,7 +21,10 @@ export interface AgentRuntime {
   workspaceRoot: string;
   log: typeof log;
   buildSystemPrompt: () => string;
+  skillManager: SkillManager;
 }
+
+let defaultSkillManager = createSkillManager(process.cwd());
 
 export const defaultHistoryStore: AgentHistoryStore = {
   addMessage,
@@ -31,10 +35,23 @@ export const defaultHistoryStore: AgentHistoryStore = {
 
 export function createDefaultAgentRuntime(): AgentRuntime {
   const workspaceRoot = process.cwd();
+  const skillManager = getDefaultSkillManager(workspaceRoot);
   return {
     history: defaultHistoryStore,
     workspaceRoot,
     log,
-    buildSystemPrompt: () => buildSystemPrompt(workspaceRoot),
+    buildSystemPrompt: () => buildSystemPrompt(workspaceRoot, skillManager.list()),
+    skillManager,
   };
+}
+
+export function getDefaultSkillManager(workspaceRoot = process.cwd()): SkillManager {
+  if (defaultSkillManager.workspaceRoot !== workspaceRoot) {
+    defaultSkillManager = createSkillManager(workspaceRoot);
+  }
+  return defaultSkillManager;
+}
+
+export function resetDefaultSkillSessionState(): void {
+  defaultSkillManager.reset();
 }

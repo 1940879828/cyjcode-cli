@@ -1,5 +1,5 @@
 import { streamChat } from "../llm/client.js";
-import type { ChatMessage } from "../llm/types.js";
+import type { ChatMessage, ToolCall } from "../llm/types.js";
 import { toolsToOpenAI } from "../tools/index.js";
 import { appendProjectInstructionsToHistory } from "./sessionInstructions.js";
 import type { AgentEvent } from "./types.js";
@@ -10,7 +10,7 @@ import {
   logLlmResponse,
   type TurnResponse,
 } from "./turnResponse.js";
-import { executeToolCalls } from "./toolExecution.js";
+import { executeToolCalls, type ToolExecutionBatch } from "./toolExecution.js";
 import { toErrorMessage } from "./errors.js";
 import { createDefaultAgentRuntime, type AgentRuntime } from "./runtime.js";
 
@@ -35,12 +35,16 @@ export async function* runAgentLoop(
 ): AsyncGenerator<AgentEvent> {
   const runtime = options.runtime ?? createDefaultAgentRuntime();
   const historyStart = runtime.history.getLength();
+  const skillStateStart = runtime.skillManager.snapshot();
   const context = startSession(userMessage, runtime);
 
   try {
     yield* runAgentSession(userMessage, context, options);
   } finally {
-    if (options.signal?.aborted) runtime.history.truncate(historyStart);
+    if (options.signal?.aborted) {
+      runtime.history.truncate(historyStart);
+      runtime.skillManager.restore(skillStateStart);
+    }
   }
 }
 
@@ -51,6 +55,7 @@ async function* runAgentSession(
 ): AsyncGenerator<AgentEvent> {
   yield { type: "user_message", content: userMessage };
   context.runtime.history.addMessage({ role: "user", content: userMessage });
+  appendSkillInjections(userMessage, context);
 
   for (let turn = 1; turn <= MAX_ROUNDS; turn++) {
     if (options.signal?.aborted) return;
@@ -87,14 +92,24 @@ async function* handleTurnResponse(
   }
 
   addAssistantToolRequest(context, response);
-  yield* executeToolCalls({
-    sessionId: context.sessionId,
-    turn,
-    toolCalls: response.toolCalls,
-    history: context.runtime.history,
-  });
+  yield* executeToolCalls(createToolExecutionBatch(context, turn, response.toolCalls));
   yield { type: "turn_end", turn };
   return false;
+}
+
+function createToolExecutionBatch(
+  context: SessionContext,
+  turn: number,
+  toolCalls: ToolCall[],
+): ToolExecutionBatch {
+  return {
+    sessionId: context.sessionId,
+    turn,
+    toolCalls,
+    history: context.runtime.history,
+    workspaceRoot: context.runtime.workspaceRoot,
+    skillManager: context.runtime.skillManager,
+  };
 }
 
 function startSession(userMessage: string, runtime: AgentRuntime): SessionContext {
@@ -107,6 +122,11 @@ function startSession(userMessage: string, runtime: AgentRuntime): SessionContex
     tools: toolsToOpenAI(),
     runtime,
   };
+}
+
+function appendSkillInjections(userMessage: string, context: SessionContext): void {
+  const injections = context.runtime.skillManager.routeUserMessage(userMessage);
+  for (const injection of injections) context.runtime.history.addMessage(injection);
 }
 
 async function* emitLlmTurn(

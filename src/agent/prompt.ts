@@ -1,4 +1,6 @@
 import { allTools } from "../tools/index.js";
+import { buildSkillListingPrompt, loadSkills } from "../skills/index.js";
+import type { SkillInfo } from "../skills/index.js";
 
 const BEHAVIOR_RULES = [
   "使用用户的语言回复（中文用户用中文回复）",
@@ -7,15 +9,20 @@ const BEHAVIOR_RULES = [
   "使用 shell 执行删除、网络请求、修改 git 历史等命令时，必须用 sideEffects 的对应枚举如实声明，例如 delete-in-cwd、delete-out-cwd、network、mutate-git-log",
   "写入文件后告知用户写入结果",
   "当用户要求执行计划时，按步骤逐步完成，每完成一步汇报进度",
+  "当 skill_listing 中的 skill 与任务匹配且尚未完整注入时，先使用 skill 工具按名称加载完整 SKILL.md",
   "工具调用参数使用合法的 JSON 格式",
   "不要访问工作目录之外的文件",
 ];
 
-export function buildSystemPrompt(workspaceRoot = process.cwd()): string {
+export function buildSystemPrompt(
+  workspaceRoot = process.cwd(),
+  skills: SkillInfo[] = loadSkills(workspaceRoot),
+): string {
   const toolDescriptions = allTools
     .map((t) => `- ${t.name}: ${t.description}`)
     .join("\n");
   const behaviorRules = BEHAVIOR_RULES.map((rule) => `- ${rule}`).join("\n");
+  const skillListing = buildSkillListingPrompt(skills);
 
   return `你是一个终端编程助手 (tigacode-cli)，运行在用户的本地环境中。
 
@@ -25,5 +32,5 @@ export function buildSystemPrompt(workspaceRoot = process.cwd()): string {
 ${toolDescriptions}
 
 行为准则:
-${behaviorRules}`;
+${behaviorRules}${skillListing ? `\n\n可用 Skills（仅为索引，完整内容需按需加载）:\n${skillListing}` : ""}`;
 }

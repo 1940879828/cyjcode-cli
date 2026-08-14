@@ -18,7 +18,7 @@ export function handleSlashCommand(
   }
 
   if (parsed.command.execution === "agent") {
-    void handlers.sendMessage(parsed.command.name);
+    void handlers.sendMessage(commandText.trim());
     return;
   }
 
