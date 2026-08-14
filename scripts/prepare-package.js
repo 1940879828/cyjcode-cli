@@ -66,7 +66,7 @@ function validatePackageJson() {
   const packageJson = readJson(join(rootDir, "package.json"));
   const binPath = packageJson.bin?.tigacode;
 
-  if (binPath !== "./bin/check-node-version.mjs") fail("package.json bin.tigacode must point to ./bin/check-node-version.mjs");
+  if (binPath !== "bin/check-node-version.mjs") fail("package.json bin.tigacode must point to bin/check-node-version.mjs");
   if (packageJson.main !== "./dist/cli.js") fail("package.json main must point to ./dist/cli.js");
   if (!packageJson.files?.includes("dist/")) fail("package.json files must include dist/");
 }

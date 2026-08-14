@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/cli.js",
   "bin": {
-    "tigacode": "./bin/check-node-version.mjs"
+    "tigacode": "bin/check-node-version.mjs"
   },
   "files": [
     "bin/",
