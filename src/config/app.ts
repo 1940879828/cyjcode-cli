@@ -5,6 +5,8 @@
 export const APP = {
   /** 展示名（UI 文案用） */
   name: "tigacode-cli",
+  /** 终端窗口/标签标题 */
+  terminalTitle: "TigaCode",
   /** 用户配置目录名（~/.tigacode） */
   configDirName: ".tigacode",
 } as const;

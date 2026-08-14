@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { Box, Text } from "ink";
+import { APP } from "../config/app.js";
 import { getConfig } from "../config/store.js";
 import type { AppConfig } from "../config/store.js";
 import { getPackageVersion } from "../config/version.js";
-import { useChat, useChatInputRouter, useExit } from "./hooks/index.js";
+import { useChat, useChatInputRouter, useExit, useTerminalTitle } from "./hooks/index.js";
 import type { AgentRunner } from "./hooks/index.js";
 import InputBox from "./components/InputBox/index.js";
 import TranscriptViewport, { useTranscriptViewportController } from "./components/TranscriptViewport/index.js";
@@ -25,6 +26,7 @@ interface AppProps {
 
 const App = ({ agentRunner, initialSessionId }: AppProps) => {
   const runtime = useAppRuntime({ agentRunner, initialSessionId });
+  useAppTerminalTitle(runtime);
   return <AppContent runtime={runtime} />;
 };
 
@@ -47,6 +49,10 @@ interface AppRuntime {
 
 type ChatRuntime = ReturnType<typeof useChat>;
 type ExitRuntime = ReturnType<typeof useExit>;
+
+const TITLE_ANIMATION_FRAMES = ["*", "+"] as const;
+const TITLE_STATIC_PREFIX = "*";
+const TITLE_ANIMATION_INTERVAL_MS = 960;
 
 interface SubmitHandlerInput {
   cancelExitConfirmation: () => void;
@@ -157,6 +163,37 @@ function buildTranscriptHeader(config: AppConfig) {
     reasoningEffort: config.reasoningEffort,
     path: process.cwd(),
   };
+}
+
+function useAppTerminalTitle(runtime: AppRuntime): void {
+  const [frame, setFrame] = useState(0);
+  useTitleAnimation(runtime.isStreaming, setFrame);
+
+  const title = buildAppTerminalTitle(runtime);
+  const prefix = runtime.isStreaming ? TITLE_ANIMATION_FRAMES[frame] : TITLE_STATIC_PREFIX;
+  useTerminalTitle(`${prefix} ${title}`);
+}
+
+function useTitleAnimation(
+  isStreaming: boolean,
+  setFrame: Dispatch<SetStateAction<number>>,
+): void {
+  useEffect(() => {
+    if (!isStreaming) {
+      setFrame(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setFrame((currentFrame) => (currentFrame + 1) % TITLE_ANIMATION_FRAMES.length);
+    }, TITLE_ANIMATION_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [isStreaming, setFrame]);
+}
+
+function buildAppTerminalTitle(runtime: AppRuntime): string {
+  if (runtime.config) return `${APP.terminalTitle} - ${runtime.config.model}`;
+  if (runtime.configured === false) return `${APP.terminalTitle} - setup`;
+  return APP.terminalTitle;
 }
 
 function useAppInputRouter(input: {

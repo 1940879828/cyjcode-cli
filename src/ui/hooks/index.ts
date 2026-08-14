@@ -9,3 +9,4 @@ export type {
 } from "./useChat.js";
 export { useChatInputRouter } from "./useChatInputRouter.js";
 export { useExit } from "./useExit.js";
+export { useTerminalTitle } from "./useTerminalTitle.js";

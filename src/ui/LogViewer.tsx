@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { getTodayLogPath, readLogLines, type LogEntry } from "../utils/logger.js";
 import { APP } from "../config/app.js";
+import { useTerminalTitle } from "./hooks/index.js";
 
 const MAX_VISIBLE_LOGS = 30;
 const POLL_INTERVAL = 500;
@@ -37,6 +38,7 @@ interface LogEntryRowProps {
 }
 
 const LogViewer = () => {
+  useTerminalTitle(`${APP.terminalTitle} Logs`);
   const entries = useLogEntries();
 
   return (

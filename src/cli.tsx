@@ -7,6 +7,7 @@ import { defaultSessionStore } from "./agent/sessionStore.js";
 import App from "./ui/App.js";
 import LogViewer from "./ui/LogViewer.js";
 import { startInk } from "./ui/renderInk.js";
+import { isTerminalTitleDisabled, setTerminalTitle } from "./ui/terminalTitle.js";
 
 yargs(hideBin(process.argv))
   .scriptName("tigacode")
@@ -23,6 +24,7 @@ yargs(hideBin(process.argv))
       const initialSessionId = argv.continue
         ? defaultSessionStore.resolveContinueSession(process.cwd()).id
         : undefined;
+      setInitialTerminalTitle(APP.terminalTitle);
       startInk(React.createElement(App, { initialSessionId }), { exitOnCtrlC: false, alternateScreen: true });
     }
   )
@@ -31,9 +33,14 @@ yargs(hideBin(process.argv))
     "查看实时日志",
     () => {},
     () => {
+      setInitialTerminalTitle(`${APP.terminalTitle} Logs`);
       startInk(React.createElement(LogViewer));
     }
   )
   .version(getPackageVersion())
   .help()
   .parse();
+
+function setInitialTerminalTitle(title: string): void {
+  if (!isTerminalTitleDisabled()) setTerminalTitle(title);
+}
