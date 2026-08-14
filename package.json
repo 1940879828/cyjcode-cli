@@ -1,9 +1,20 @@
 {
   "name": "tigacode-cli",
   "version": "0.1.0",
+  "description": "基于终端的 AI 编程助手 CLI 工具",
   "type": "module",
+  "main": "./dist/cli.js",
   "bin": {
     "tigacode": "./bin/check-node-version.mjs"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "engines": {
     "node": ">=22"
@@ -23,7 +34,9 @@
     "test:all": "npm run typecheck:test && node --import tsx --test tests/*.test.ts",
     "build:babel": "node -e \"require('node:fs').rmSync('.babel-out',{recursive:true,force:true})\" && babel src --out-dir .babel-out --extensions .ts,.tsx --ignore \"src/devmock/**\",\"src/test/**\"",
     "build:bundle": "esbuild .babel-out/cli.js --bundle --platform=node --format=esm --outfile=dist/cli.js --banner:js=\"#!/usr/bin/env node\" --packages=external",
-    "build": "npm run typecheck && npm run test:style && npm run build:babel && npm run build:bundle"
+    "build": "npm run typecheck && npm run test:style && npm run build:babel && npm run build:bundle",
+    "prepare:package": "node scripts/prepare-package.js",
+    "prepublishOnly": "node scripts/prepare-package.js"
   },
   "dependencies": {
     "chalk": "^5.6.2",

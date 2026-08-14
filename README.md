@@ -34,3 +34,20 @@ npm run build
 ```
 
 生产入口不包含 `src/devmock/`，录制和回放只通过 `npm run devrecord`、`npm run devmock` 使用。
+
+## 安装使用
+
+```bash
+npm install -g tigacode-cli
+tigacode
+```
+
+## 发布
+
+```bash
+npm login
+npm run prepare:package
+npm publish
+```
+
+`prepare:package` 会先运行生产构建，再用 `npm pack --dry-run --json --ignore-scripts` 校验发布包内容。

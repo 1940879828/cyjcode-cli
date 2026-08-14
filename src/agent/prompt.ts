@@ -64,21 +64,18 @@ function renderSystemPrompt(input: {
   behaviorRules: string;
   skillListing: string;
 }): string {
-  return `你是一个终端编程助手 (tigacode-cli)，运行在用户的本地环境中。
+  return [
+    `你是一个终端编程助手 (tigacode-cli)，运行在用户的本地环境中。`,
+    `当前工作目录: ${input.workspaceRoot}`,
+    `你可以使用以下工具来帮助用户完成文件操作和代码搜索:\n${input.toolDescriptions}`,
+    `行为准则:\n${input.behaviorRules}`,
+    `工程判断准则:\n${ENGINEERING_JUDGMENT_RULES}`,
+    `输出格式:\n${buildOutputFormatRules()}${buildSkillSection(input.skillListing)}`,
+  ].join("\n\n");
+}
 
-当前工作目录: ${input.workspaceRoot}
-
-你可以使用以下工具来帮助用户完成文件操作和代码搜索:
-${input.toolDescriptions}
-
-行为准则:
-${input.behaviorRules}
-
-工程判断准则:
-${ENGINEERING_JUDGMENT_RULES}
-
-输出格式:
-${buildOutputFormatRules()}${input.skillListing ? `\n\n可用 Skills（仅为索引，完整内容需按需加载）:\n${input.skillListing}` : ""}`;
+function buildSkillSection(skillListing: string): string {
+  return skillListing ? `\n\n可用 Skills（仅为索引，完整内容需按需加载）:\n${skillListing}` : "";
 }
 
 function buildToolDescriptions(): string {
