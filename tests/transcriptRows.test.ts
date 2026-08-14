@@ -11,8 +11,6 @@ import {
 import type { AssistantTurn } from "../src/ui/assistantTurn.js";
 import type { ChatEntry } from "../src/ui/hooks/index.js";
 
-const SELECTION_HINT = "  提示: 可拖拽选择文字，滚轮浏览内容";
-
 test("wraps plain English by terminal columns", () => {
   assert.deepEqual(wrapTextByColumns("hello world", 5), ["hello", " worl", "d"]);
 });
@@ -113,7 +111,7 @@ test("adds header rows before chat history", () => {
   assert.equal(rows.at(-1)?.kind, "spacer");
 });
 
-test("adds selection hint only to completed thinking rows", () => {
+test("does not add selection tips to completed thinking rows", () => {
   const rows = buildTranscriptRows({
     entries: [
       {
@@ -132,7 +130,6 @@ test("adds selection hint only to completed thinking rows", () => {
     rows.map((row) => ({ kind: row.kind, text: row.text })),
     [
       { kind: "thinking", text: "Thinking: done thinking" },
-      { kind: "thinking", text: SELECTION_HINT },
       { kind: "spacer", text: "" },
       { kind: "thinking", text: "Thinking: still thinking" },
       { kind: "spacer", text: "" },
@@ -140,7 +137,7 @@ test("adds selection hint only to completed thinking rows", () => {
   );
 });
 
-test("does not show selection hint without completed thinking", () => {
+test("does not show selection tips without completed thinking", () => {
   const rows = buildTranscriptRows({
     entries: [
       {
@@ -155,7 +152,7 @@ test("does not show selection hint without completed thinking", () => {
     width: 80,
   });
 
-  assert.equal(rows.some((row) => row.text === SELECTION_HINT), false);
+  assert.equal(rows.some((row) => row.text.includes("拖选文字")), false);
 });
 
 test("adds one spacer after a system command output block", () => {

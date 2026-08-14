@@ -154,6 +154,13 @@ test("resolves enter shortcuts to submit command or newline insert", () => {
       text: "\n",
     },
   });
+  assert.deepEqual(resolveInputBoxCommand("", { return: true, ctrl: true }), {
+    type: "edit",
+    event: {
+      type: "insertText",
+      text: "\n",
+    },
+  });
 });
 
 test("resolved printable input inserts through the reducer", () => {
@@ -569,6 +576,11 @@ test("renders wrapped text, with the cursor as a reversed char when shown", () =
     selectInputBoxView(state, layout, true).renderedText,
     "abcd\n ef\u001B[38;2;85;168;232m\u001B[7m \u001B[27m\u001B[39m",
   );
+});
+
+test("selects whether the rendered input is blank", () => {
+  assert.equal(selectInputBoxView(createState("  \n"), defaultLayout).isBlank, true);
+  assert.equal(selectInputBoxView(createState("hello"), defaultLayout).isBlank, false);
 });
 
 test("stripMouseInput removes SGR mouse events with and without escape prefix", () => {

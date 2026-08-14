@@ -4,7 +4,6 @@ import { appendAssistantTurnRows } from "./assistantRows.js";
 import {
   CONTINUATION_PREFIX,
   ROLE_STYLES,
-  SELECTION_HINT,
   USER_PREFIX,
   createSpacerRow,
 } from "./transcriptTheme.js";
@@ -16,7 +15,6 @@ interface ThinkingRowsInput {
   id: string;
   content: string;
   width: number;
-  showSelectionHint: boolean;
 }
 
 export const buildTranscriptEntryRows = ({
@@ -68,7 +66,6 @@ const appendStreamingReasoning = (
     id: "streaming_reasoning",
     content: streamingReasoning,
     width,
-    showSelectionHint: false,
   });
 };
 
@@ -161,7 +158,6 @@ const appendThinkingRows = (input: ThinkingRowsInput) => {
     firstPrefix: "Thinking: ",
     restPrefix: CONTINUATION_PREFIX,
   });
-  if (input.showSelectionHint) appendSelectionHintRow(input.rows, input.id);
   input.rows.push(createSpacerRow(`${input.id}_after`));
 };
 
@@ -175,17 +171,6 @@ const appendCompletedThinkingRows = (
     id: entry.id,
     content: entry.content,
     width,
-    showSelectionHint: true,
-  });
-};
-
-const appendSelectionHintRow = (rows: TranscriptRow[], id: string) => {
-  rows.push({
-    id: `${id}_selection_hint`,
-    kind: "thinking",
-    text: `${CONTINUATION_PREFIX}${SELECTION_HINT}`,
-    color: "gray",
-    dimColor: true,
   });
 };
 

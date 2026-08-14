@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
 import LoadingStatus from "../LoadingStatus/LoadingStatus.js";
+import Tips from "../Tips/index.js";
 import type { InputBoxView } from "./inputBoxModel.js";
 
 const PROMPT = "❯ ";
@@ -16,6 +17,7 @@ interface Props {
   maxVisibleLines: number;
   disabled: boolean;
   statusMessage?: string | null;
+  tipMessages?: readonly string[];
   isExiting?: boolean;
 }
 
@@ -36,6 +38,7 @@ const InputBox = ({
   maxVisibleLines,
   disabled,
   statusMessage,
+  tipMessages = [],
   isExiting = false,
 }: Props) => {
   const isDimmed = disabled || isExiting;
@@ -56,6 +59,8 @@ const InputBox = ({
       <Box height={1}>
         {disabled || statusMessage ? (
           <LoadingStatus message={statusMessage ?? undefined} />
+        ) : tipMessages.length > 0 ? (
+          <Tips messages={tipMessages} />
         ) : (
           <Text> </Text>
         )}

@@ -14,6 +14,7 @@ import { useAppLayout } from "./appLayout.js";
 import { useConfigurationState } from "./configurationState.js";
 import { ContextUsageFooter } from "./ContextUsageFooter.js";
 import { handleSlashCommand } from "./slashCommandRunner.js";
+import { selectInputTips } from "./inputTips.js";
 
 interface AppProps {
   agentRunner?: AgentRunner;
@@ -32,6 +33,7 @@ interface AppRuntime {
   isExiting: boolean;
   exitStatusMessage: string | null;
   isStreaming: boolean;
+  entries: ChatRuntime["entries"];
   contextUsage: ReturnType<typeof useChat>["contextUsage"];
   inputController: ReturnType<typeof useInputBoxController>;
   transcriptController: ReturnType<typeof useTranscriptViewportController>;
@@ -80,6 +82,7 @@ function useAppRuntime(agentRunner: AgentRunner | undefined): AppRuntime {
     isExiting: exit.isExiting,
     exitStatusMessage: exit.exitStatusMessage,
     isStreaming: chat.isStreaming,
+    entries: chat.entries,
     contextUsage: chat.contextUsage,
     inputController,
     transcriptController,
@@ -179,6 +182,12 @@ function AppContent({ runtime }: { runtime: AppRuntime }) {
     return null;
   }
 
+  const tipMessages = selectInputTips({
+    entries: runtime.entries,
+    isStreaming: runtime.isStreaming,
+    inputIsBlank: runtime.inputController.view.isBlank,
+  });
+
   return (
     <Box flexDirection="column" width={runtime.layout.screenWidth} height={runtime.layout.screenHeight}>
       <TranscriptViewport
@@ -196,6 +205,7 @@ function AppContent({ runtime }: { runtime: AppRuntime }) {
           maxVisibleLines={runtime.layout.maxVisibleInputLines}
           disabled={runtime.isStreaming}
           statusMessage={runtime.exitStatusMessage}
+          tipMessages={tipMessages}
           isExiting={runtime.isExiting}
         />
 

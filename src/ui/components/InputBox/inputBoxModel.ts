@@ -63,6 +63,7 @@ export type InputBoxCommand =
 
 export interface InputBoxView {
   renderedText: string;
+  isBlank: boolean;
   // UI 裁剪多行输入时需要保留光标所在的视觉行。
   cursorVisualLine: number;
 }
@@ -145,7 +146,9 @@ export function resolveInputBoxCommand(
 }
 
 function resolveReturnCommand(key: InputKeyLike): InputBoxCommand {
-  return key.shift || key.meta ? editCommand(insertText("\n")) : { type: "submit" };
+  return key.ctrl || key.shift || key.meta
+    ? editCommand(insertText("\n"))
+    : { type: "submit" };
 }
 
 function resolveNavigationCommand(key: InputKeyLike): InputBoxCommand | null {
@@ -215,6 +218,7 @@ export function selectInputBoxView(
     renderedText: showCursor
       ? cursor.renderWithCursor(" ", CURSOR_FG_BLUE)
       : cursor.getRenderedText(),
+    isBlank: isBlankInput(state.editor.text),
     cursorVisualLine: cursor.getPosition().visualLine,
   };
 }
