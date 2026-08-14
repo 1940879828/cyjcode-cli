@@ -129,7 +129,7 @@ const appendRegularTextRows = (
 };
 
 const shouldAppendBlockSpacer = (entry: TextChatEntry): boolean =>
-  entry.role === "system";
+  entry.role === "system" || entry.role === "user";
 
 const TEXT_ENTRY_CONFIGS: Record<TextChatEntry["role"], {
   kind: TranscriptRowKind;
@@ -153,7 +153,6 @@ const getTextEntryRowConfig = (
 } => TEXT_ENTRY_CONFIGS[entry.role];
 
 const appendThinkingRows = (input: ThinkingRowsInput) => {
-  input.rows.push(createSpacerRow(`${input.id}_before`));
   appendWrappedRows(input.rows, {
     id: input.id,
     kind: "thinking",

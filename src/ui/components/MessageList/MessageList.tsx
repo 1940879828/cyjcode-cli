@@ -107,8 +107,8 @@ const MessageList = ({ entries, version, model, thinking, reasoningEffort }: Pro
 export const MessageRow = ({ entry }: { entry: MessageRowEntry }) => (
   <Box
     backgroundColor={ROLE_BACKGROUND_COLORS[entry.role]}
-    marginTop={entry.role === "thinking" ? 1 : 0}
-    marginBottom={entry.role === "thinking" ? 1 : 0}
+    marginTop={0}
+    marginBottom={entry.role === "thinking" || entry.role === "user" ? 1 : 0}
     marginLeft={entry.role === "assistant" ? 1 : 0}
   >
     {entry.role === "assistant" ? (

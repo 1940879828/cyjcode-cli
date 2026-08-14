@@ -66,13 +66,13 @@ test("builds stable transcript row order", () => {
     rows.map((row) => ({ kind: row.kind, text: row.text })),
     [
       { kind: "user", text: "❯ question" },
+      { kind: "spacer", text: "" },
       { kind: "assistant", text: "● hello" },
       { kind: "spacer", text: "" },
       { kind: "tool", text: '  👀读取文件"src/a.ts" L1-2' },
       { kind: "tool", text: "  ✓ 读取完成" },
       { kind: "spacer", text: "" },
       { kind: "assistant", text: "● done" },
-      { kind: "spacer", text: "" },
       { kind: "spacer", text: "" },
       { kind: "thinking", text: "Thinking: thinking" },
       { kind: "spacer", text: "" },
@@ -109,7 +109,8 @@ test("adds header rows before chat history", () => {
   );
   assert.equal(titleRow?.segments?.some((segment) => segment.color === "#E24B5A"), true);
   assert.equal(titleRow?.segments?.some((segment) => segment.color === "#55A8E8"), true);
-  assert.equal(rows.at(-1)?.text, "❯ hello");
+  assert.equal(rows.some((row) => row.text === "❯ hello"), true);
+  assert.equal(rows.at(-1)?.kind, "spacer");
 });
 
 test("adds selection hint only to completed thinking rows", () => {
@@ -130,10 +131,8 @@ test("adds selection hint only to completed thinking rows", () => {
   assert.deepEqual(
     rows.map((row) => ({ kind: row.kind, text: row.text })),
     [
-      { kind: "spacer", text: "" },
       { kind: "thinking", text: "Thinking: done thinking" },
       { kind: "thinking", text: SELECTION_HINT },
-      { kind: "spacer", text: "" },
       { kind: "spacer", text: "" },
       { kind: "thinking", text: "Thinking: still thinking" },
       { kind: "spacer", text: "" },
@@ -187,6 +186,7 @@ test("adds one spacer after a system command output block", () => {
       { kind: "system", text: "提示: Thinking 已关闭" },
       { kind: "spacer", text: "" },
       { kind: "user", text: "❯ 你觉得现在的ui目录需不需要整理" },
+      { kind: "spacer", text: "" },
     ],
   );
 });
