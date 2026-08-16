@@ -11,6 +11,7 @@ function createConfig(): AppConfig {
     models: [createModelConfig("deepseek-v4-pro")],
     thinking: true,
     reasoningEffort: "high",
+    provider: "deepseek",
   };
 }
 

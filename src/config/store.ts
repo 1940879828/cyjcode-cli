@@ -9,6 +9,9 @@ const LEGACY_DIR_NAME = ".cyjcode";
 export const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
+export const PROVIDERS = ["deepseek", "codebuddy"] as const;
+export type Provider = (typeof PROVIDERS)[number];
+
 export interface AppConfig {
   baseUrl: string;
   apiKey: string;
@@ -16,6 +19,7 @@ export interface AppConfig {
   models: ModelConfig[];
   thinking: boolean;
   reasoningEffort: ReasoningEffort;
+  provider: Provider;
 }
 
 export interface ModelConfig {
@@ -43,7 +47,16 @@ export const DEFAULT_CONFIG: AppConfig = {
   models: DEFAULT_MODEL_CONFIGS,
   thinking: true,
   reasoningEffort: "high",
+  provider: "deepseek",
 };
+
+/** CodeBuddy 官方端点（中国版，含 /v2 前缀，chat/completions 直接拼在后面） */
+export const CODEBUDDY_BASE_URL = "https://copilot.tencent.com/v2";
+
+/** API Key 以 ck_ 开头即视为 CodeBuddy 订阅密钥 */
+export function detectProvider(apiKey: string): Provider {
+  return apiKey.trimStart().startsWith("ck_") ? "codebuddy" : "deepseek";
+}
 
 function ensureDir(): void {
   if (!fs.existsSync(CONFIG_DIR)) {
@@ -129,13 +142,23 @@ export function parseContextWindow(value: string): number | null {
 
 function normalizeConfig(config: RawAppConfig): AppConfig {
   const model = config.model || DEFAULT_CONFIG.model;
+  const apiKey = config.apiKey ?? DEFAULT_CONFIG.apiKey;
   return {
     ...DEFAULT_CONFIG,
     ...config,
     model,
+    apiKey,
     models: normalizeModelConfigs(config.models, model),
     reasoningEffort: normalizeReasoningEffort(config.reasoningEffort),
+    provider: normalizeProvider(config.provider, apiKey),
   };
+}
+
+function normalizeProvider(provider: unknown, apiKey: string): Provider {
+  if (typeof provider === "string" && (PROVIDERS as readonly string[]).includes(provider)) {
+    return provider as Provider;
+  }
+  return detectProvider(apiKey);
 }
 
 function normalizeModelConfigs(models: unknown, currentModel: string): ModelConfig[] {

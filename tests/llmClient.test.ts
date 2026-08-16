@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createModelConfig, type AppConfig } from "../src/config/store.js";
-import { buildStreamingParamsWithConfig } from "../src/llm/client.js";
+import { buildStreamingParamsWithConfig, normalizeCodebuddyBaseUrl } from "../src/llm/client.js";
 
 const createConfig = (thinking: boolean): AppConfig => ({
   baseUrl: "https://example.test",
@@ -10,6 +10,7 @@ const createConfig = (thinking: boolean): AppConfig => ({
   models: [createModelConfig("deepseek-v4-pro")],
   thinking,
   reasoningEffort: "high",
+  provider: "deepseek",
 });
 
 test("explicitly disables DeepSeek thinking mode", () => {
@@ -28,4 +29,14 @@ test("enables thinking mode with reasoning effort", () => {
 
   assert.deepEqual(params.thinking, { type: "enabled" });
   assert.equal(params.reasoning_effort, "high");
+});
+
+test("normalizeCodebuddyBaseUrl appends /v2 prefix when missing", () => {
+  assert.equal(normalizeCodebuddyBaseUrl("https://copilot.tencent.com"), "https://copilot.tencent.com/v2");
+  assert.equal(normalizeCodebuddyBaseUrl("https://copilot.tencent.com/"), "https://copilot.tencent.com/v2");
+});
+
+test("normalizeCodebuddyBaseUrl keeps existing /v2 prefix", () => {
+  assert.equal(normalizeCodebuddyBaseUrl("https://copilot.tencent.com/v2"), "https://copilot.tencent.com/v2");
+  assert.equal(normalizeCodebuddyBaseUrl("https://copilot.tencent.com/v2/"), "https://copilot.tencent.com/v2");
 });

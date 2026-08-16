@@ -20,6 +20,7 @@ test("writes config with private file permissions on posix", async () => {
       models: [store.createModelConfig("custom-model")],
       thinking: true,
       reasoningEffort: "high",
+      provider: "deepseek",
     });
 
     assert.equal(fs.existsSync(store.getConfigPath()), true);
@@ -85,6 +86,7 @@ test("preserves custom context window for the current model", async () => {
       models: [store.createModelConfig("deepseek-v4-pro", 2 * 1024 * 1024)],
       thinking: true,
       reasoningEffort: "high",
+      provider: "deepseek",
     });
 
     assert.equal(store.getConfig().models[0]?.contextWindow, 2 * 1024 * 1024);

@@ -115,32 +115,40 @@ const StepContent = ({
   isExiting: boolean;
 }) => {
   switch (state.step) {
+    case "provider":
+      return (
+        <StepBox title="① 选择服务商" hint="选择要接入的模型服务">
+          <ProviderOptions selected={state.values.provider} inputValue={state.inputValue} />
+        </StepBox>
+      );
+
     case "baseUrl":
       return (
-        <StepBox title="① API Base URL" hint="输入 OpenAI 兼容的 API 端点地址" defaultValue={DEFAULT_CONFIG.baseUrl}>
+        <StepBox title="② API Base URL" hint="输入 OpenAI 兼容的 API 端点地址" defaultValue={baseUrlStepDefault(state)}>
           <PromptRow value={state.inputValue} placeholder="(使用默认值)" cursorEnabled={!isExiting} />
         </StepBox>
       );
 
     case "apiKey":
       return (
-        <StepBox title="② API Key" hint="输入您的 API 密钥">
+        <StepBox title="③ API Key" hint={apiKeyHint(state)}>
           <PromptRow value={state.inputValue} placeholder="" cursorEnabled={!isExiting} />
         </StepBox>
       );
 
     case "model":
       return (
-        <StepBox title="③ 模型名称" hint="输入要使用的 LLM 模型名称" defaultValue={DEFAULT_CONFIG.model}>
+        <StepBox title="④ 模型名称" hint="输入要使用的 LLM 模型名称" defaultValue={modelStepDefault(state)}>
           <PromptRow value={state.inputValue} placeholder="(使用默认值)" cursorEnabled={!isExiting} />
         </StepBox>
       );
 
-    case "confirm":
+    case "confirm": {
       return (
         <Box flexDirection="column">
-          <Text bold>④ 确认配置</Text>
+          <Text bold>⑤ 确认配置</Text>
           <Box marginY={1} flexDirection="column">
+            <Text>Provider: <Text color="cyan">{state.values.provider}</Text></Text>
             <Text>API Base URL: <Text color="cyan">{state.values.baseUrl}</Text></Text>
             <Text>
               API Key:{" "}
@@ -155,7 +163,60 @@ const StepContent = ({
           </Box>
         </Box>
       );
+    }
   }
+};
+
+function modelStepDefault(state: SetupWizardState): string {
+  return state.values.provider === "codebuddy" ? "deepseek-v4-pro" : DEFAULT_CONFIG.model;
+}
+
+function baseUrlStepDefault(state: SetupWizardState): string {
+  return state.values.baseUrl;
+}
+
+function apiKeyHint(state: SetupWizardState): string {
+  return state.values.provider === "codebuddy"
+    ? "输入 CodeBuddy 订阅密钥（ck_ 开头）"
+    : "输入您的 API 密钥";
+}
+
+const PROVIDER_OPTIONS = [
+  { key: "1", value: "codebuddy", label: "CodeBuddy", hint: "腾讯代码助手（ck_ 密钥）" },
+  { key: "2", value: "deepseek", label: "DeepSeek", hint: "DeepSeek 官方 API" },
+] as const;
+
+function selectedProvider(input: string): string | null {
+  const normalized = input.trim().toLowerCase();
+  const matched = PROVIDER_OPTIONS.find(
+    (option) => normalized === option.key || normalized === option.value,
+  );
+  return matched?.value ?? null;
+}
+
+const ProviderOptions = ({
+  selected,
+  inputValue,
+}: {
+  selected: string;
+  inputValue: string;
+}) => {
+  const current = selectedProvider(inputValue) ?? selected;
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      {PROVIDER_OPTIONS.map((option) => (
+        <Box key={option.value}>
+          <Text color={current === option.value ? "green" : "gray"}>
+            {current === option.value ? "●" : "○"} [{option.key}] {option.label}
+          </Text>
+          <Text color="gray" dimColor> — {option.hint}</Text>
+        </Box>
+      ))}
+      <Box marginTop={1}>
+        <Text color="gray">输入 1 或 2 选择，回车确认</Text>
+      </Box>
+    </Box>
+  );
 };
 
 const StepBox = ({
