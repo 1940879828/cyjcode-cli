@@ -71,7 +71,6 @@ export const slashCommands: SlashCommand[] = [
         "当前配置:",
         "",
         `  配置文件: ${getConfigPath()}`,
-        `  Provider: ${config.provider}`,
         `  API Base URL: ${config.baseUrl}`,
         `  API Key: ${config.apiKey ? config.apiKey.slice(0, 8) + "..." + (config.apiKey.length > 8 ? config.apiKey.slice(-4) : "") : "(未设置)"}`,
         `  Model: ${config.model}`,

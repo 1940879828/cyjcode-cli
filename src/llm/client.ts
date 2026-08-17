@@ -49,35 +49,12 @@ function buildClient(): OpenAI {
   return buildClientWithConfig(config);
 }
 
-/**
- * 按 provider 构造 OpenAI 客户端：
- * - deepseek：标准 Bearer 认证，baseUrl 直接使用。
- * - codebuddy：同时发送 X-API-Key 与 Authorization: Bearer 两个头。
- */
 export function buildClientWithConfig(config: AppConfig): OpenAI {
-  if (config.provider === "codebuddy") {
-    return new OpenAI({
-      baseURL: normalizeCodebuddyBaseUrl(config.baseUrl),
-      apiKey: config.apiKey,
-      defaultHeaders: { "X-API-Key": config.apiKey },
-      dangerouslyAllowBrowser: false,
-    });
-  }
   return new OpenAI({
     baseURL: config.baseUrl,
     apiKey: config.apiKey,
     dangerouslyAllowBrowser: false,
   });
-}
-
-/**
- * CodeBuddy 的 chat 端点是 `<endpoint>/v2/chat/completions`；缺少 /v2 前缀时，
- * 网关会把请求 302 重定向到错误地址，导致流式响应为空（无回复内容）。
- * 这里对旧配置（baseUrl 未带 /v2）做归一化，保证端点前缀完整。
- */
-export function normalizeCodebuddyBaseUrl(baseUrl: string): string {
-  const trimmed = baseUrl.replace(/\/+$/, "");
-  return trimmed.endsWith("/v2") ? trimmed : `${trimmed}/v2`;
 }
 
 function toOpenAIMessages(messages: ChatMessage[]): OpenAI.Chat.ChatCompletionMessageParam[] {
