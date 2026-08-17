@@ -58,7 +58,7 @@ const InputBox = ({
     <Box flexDirection="column" paddingX={0} marginTop={1}>
       <Box height={1}>
         {disabled || statusMessage ? (
-          <LoadingStatus message={statusMessage ?? undefined} />
+          <LoadingStatus message={statusMessage ?? undefined} showElapsed={disabled && !statusMessage} />
         ) : tipMessages.length > 0 ? (
           <Tips messages={tipMessages} />
         ) : (
