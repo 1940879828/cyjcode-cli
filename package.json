@@ -1,6 +1,6 @@
 {
   "name": "tigacode-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "基于终端的 AI 编程助手 CLI 工具",
   "type": "module",
   "main": "./dist/cli.js",
